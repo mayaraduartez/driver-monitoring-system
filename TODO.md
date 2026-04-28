@@ -1,16 +1,16 @@
-# TODO - Pipeline robusto para sonolencia e desatencao
+# TODO - Pipeline robusto para sonolência e desatenção
 
 ## Objetivo
 
-Construir um pipeline unico, usando `new.py` como base, para detectar sonolencia e desatencao a partir de caracteristicas faciais com MediaPipe e OpenCV.
+Construir um pipeline unico, usando `main.py` como base, para detectar sonolência e desatenção a partir de caracteristicas faciais com MediaPipe e OpenCV.
 
 O sistema deve:
 
 - usar `MAR`, `EAR` e `PERCLOS` como sinais principais;
-- considerar tambem direcao do olhar como sinal complementar de desatencao;
-- evitar falsos positivos e oscilacoes rapidas;
+- considerar também direção do olhar como sinal complementar de desatenção;
+- evitar falsos positivos e oscilações rápidas;
 - confirmar eventos em janelas temporais de aproximadamente `3 a 5 segundos`;
-- aplicar pre-processamento apenas quando a qualidade do frame exigir isso.
+- aplicar pré-processamento apenas quando a qualidade do frame exigir isso.
 
 ---
 
