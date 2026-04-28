@@ -6,7 +6,7 @@ from mediapipe.tasks.python.vision import drawing_utils
 import math
 from utils.drawing import draw_landmarks_on_image
 from utils.math_utils import euclidean_distance
-from detectors.gaze_detector import get_gaze_direction
+from detectors.eye_detector import get_gaze_direction, get_eye_aspect_ratio
 from detectors.mouth_detector import get_mouth_data
 from detectors.hand_detector import is_hand_on_mouth
 
