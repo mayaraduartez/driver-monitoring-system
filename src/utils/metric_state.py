@@ -1,21 +1,19 @@
-import time
-from collections import deque
-from typing import Optional
-
-
+import time                          # Para rastrear timestamps
+from collections import deque        # Para histórico com limite de tamanho
+from typing import Optional          # Para type hints (argumentos opcionais)
 class MetricState:
     """
     Gerencia estado temporal de uma métrica com confiança suavizada.
-    
+
     Armazena:
-    - valor bruto atual
-    - valor suavizado (EMA)
-    - histórico curto para análise
-    - histórico temporal em segundos
-    - confiança entre 0.0 e 1.0
-    - cooldown
-    - tempo desde último evento válido
-    - indicador de disponibilidade
+    - valor bruto atual         # Ex: 0.45 de EAR puro do frame
+    - valor suavizado (EMA)     # Ex: 0.42 (suavizado com filtro)
+    - histórico curto           # Últimos 60 valores
+    - histórico temporal        # Timestamps de cada valor
+    - confiança entre 0.0 e 1.0 # Quanto o sistema "acredita" que o evento acontece
+    - cooldown                  # Evita disparar alerta 2x rápido
+    - tempo desde evento        # Quanto tempo desde que aconteceu
+    - indicador de disponibilidade # Face detectada ou não?
     
     Atualização de confiança:
     confianca_nova = clip(
@@ -57,13 +55,13 @@ class MetricState:
         self.is_available: bool = True
         
         # Histórico
-        self.history: deque = deque(maxlen=history_size)
-        self.timestamps: deque = deque(maxlen=history_size)
+        self.history: deque = deque(maxlen=history_size)    # Fila dos últimos 60 valores suavizados
+        self.timestamps: deque = deque(maxlen=history_size) # Fila dos timestamps correspondentes
         
         # Timing
-        self.last_event_time: float = -999.0
-        self.last_update_time: float = time.time()
-        self.cooldown_end_time: float = 0.0
+        self.last_event_time: float = -999.0     # Quando foi o último evento (começa muito atrás)
+        self.last_update_time: float = time.time() # Agora
+        self.cooldown_end_time: float = 0.0      # Quando termina o cooldown
     
     def update(self, raw_value: float, is_available: bool = True) -> None:
         """
@@ -73,9 +71,9 @@ class MetricState:
             raw_value: Valor bruto da métrica (0.0-1.0 como evidência)
             is_available: Se a métrica está disponível (ex: face detectada)
         """
-        current_time = time.time()
-        self.last_update_time = current_time
-        self.is_available = is_available
+        current_time = time.time()              # Tempo agora em segundos
+        self.last_update_time = current_time    # Marca quando atualizou
+        self.is_available = is_available        # Registra se disponível
         
         if not is_available:
             # Se indisponível, degradar confiança lentamente
@@ -95,8 +93,8 @@ class MetricState:
             )
         
         # Adicionar ao histórico
-        self.history.append(self.smooth_value)
-        self.timestamps.append(current_time)
+        self.history.append(self.smooth_value)  # Adiciona valor suavizado
+        self.timestamps.append(current_time)    # Marca o momento
         
         # Atualizar confiança com histerese
         # Evidência = quanto o valor suavizado indica que o evento está acontecendo
@@ -104,7 +102,7 @@ class MetricState:
         
         # Fórmula de atualização com ganhos assimétricos
         self.confidence += self.gain_up * evidence - self.gain_down * (1 - evidence)
-        self.confidence = max(0.0, min(1.0, self.confidence))
+        self.confidence = max(0.0, min(1.0, self.confidence))  # Garante 0.0-1.0
         
         # Registrar tempo do evento se confiança está alta
         if self.confidence > 0.7:
@@ -162,12 +160,12 @@ class MetricState:
     def get_debug_info(self) -> dict:
         """Retorna dicionário com informações de debug."""
         return {
-            'name': self.name,
-            'raw_value': round(self.raw_value, 3),
-            'smooth_value': round(self.smooth_value, 3),
-            'confidence': round(self.confidence, 3),
-            'is_available': self.is_available,
-            'on_cooldown': self.is_on_cooldown(),
-            'time_since_event': round(self.time_since_event(), 2),
-            'history_length': len(self.history),
+            'name': self.name,                                    # Nome da métrica
+            'raw_value': round(self.raw_value, 3),               # Valor bruto
+            'smooth_value': round(self.smooth_value, 3),         # Valor suavizado
+            'confidence': round(self.confidence, 3),             # Confiança 0-1
+            'is_available': self.is_available,                   # Disponível?
+            'on_cooldown': self.is_on_cooldown(),               # Em cooldown?
+            'time_since_event': round(self.time_since_event(), 2), # Últimos segundos
+            'history_length': len(self.history),                # Quantos valores tem
         }
