@@ -2,31 +2,16 @@
 
 ## Objetivo
 
-Construir um pipeline unico, usando `main.py` como base, para detectar sonolência e desatenção a partir de caracteristicas faciais com MediaPipe e OpenCV.
+Construir um pipeline único, usando `main.py` como base, para detectar sonolência e desatenção a partir de características faciais com MediaPipe e OpenCV.
 
 O sistema deve:
 
-- usar `MAR`, `EAR` e `PERCLOS` como sinais principais;
-- considerar também direção do olhar como sinal complementar de desatenção;
+- extrair 3 métricas principais: `PERCLOS`, `MAR` e posição do olhar;
+- agregar as confianças temporais das 3 métricas em um risco global;
+- tratar oclusões faciais sem zerar estados imediatamente;
+- processar frames com qualidade e pré-processamento condicional;
 - evitar falsos positivos e oscilações rápidas;
-- confirmar eventos em janelas temporais de aproximadamente `3 a 5 segundos`;
-- aplicar pré-processamento apenas quando a qualidade do frame exigir isso.
-
----
-
-## Resumo da arquitetura planejada
-
-Em vez de disparar alerta por frame, o pipeline deve funcionar em camadas:
-
-1. captura do frame;
-2. analise da qualidade do frame;
-3. pre-processamento condicional;
-4. deteccao de landmarks com MediaPipe;
-5. calculo das metricas faciais;
-6. atualizacao de estados temporais por metrica;
-7. agregacao em um risco global;
-8. emissao de alertas com histerese e cooldown;
-9. exibicao e registro dos dados.
+- confirmar eventos em janelas temporais adequadas.
 
 ---
 
@@ -63,7 +48,19 @@ flowchart TD
 
 ---
 
-## Diretriz principal de implementacao
+## Diretriz principal de implementação
+
+Não usar um threshold simples em cada frame como decisão final.
+
+Em vez disso, cada métrica deve gerar uma `confiança temporal` entre `0.0` e `1.0`:
+- Sobe quando a evidência persiste
+- Cai gradualmente quando a evidência desaparece
+
+Depois disso, um agregador global combina as confiança em um estado final de risco.
+
+Essa abordagem é melhor que:
+- disparar alerta diretamente por valor instantâneo;
+- fazer uma média ponderada dos valores crus antes de estabilizar cada fenômeno.
 
 Nao usar um threshold simples em cada frame como decisao final.
 
@@ -79,408 +76,262 @@ Essa abordagem e melhor que:
 
 ---
 
-## Ordem recomendada de trabalho
+## Sprint 1 - Implementação de PERCLOS
 
-## Etapa 1 - Consolidar a base do projeto
+Implementar o processo de captura de PERCLOS (Percentage of Eyelid Closure) baseado em EAR.
 
-### Sugestoes
+### Tarefa 1.1: Capturar estado do olho por frame
 
-- Primeiro estabilize a arquitetura no mesmo arquivo.
-- So depois considere quebrar em modulos como `metrics.py`, `quality.py`, `state.py` e `alerts.py`.
+- [ ] Usar a métrica `EAR` (Eye Aspect Ratio) para determinar se olho está aberto ou fechado
+- [ ] Definir threshold claro para classificação (ex: `EAR_CLOSED_THRESHOLD = 0.2`)
+- [ ] Gerar estado binário: `EYE_OPEN` ou `EYE_CLOSED` por frame
+- [ ] Aplicar suavização leve para reduzir jitter
 
-### Resultado esperado
+### Tarefa 1.2: Calcular porcentagem na janela
 
-- Um unico ponto de entrada para todo o sistema.
+- [ ] Manter janela deslizante de tempo (ex: 20 segundos)
+- [ ] Contabilizar frames com olho fechado vs. aberto
+- [ ] Calcular: `PERCLOS = (frames_fechados / total_frames) * 100%`
+- [ ] Atualizar valor a cada novo frame
 
----
+### Tarefa 1.3: Calcular confiança do PERCLOS
 
-## Etapa 2 - Criar uma camada explicita de estado temporal
-
-### O que fazer
-
-Criar uma estrutura de estado para cada metrica:
-
-- `yawn_state`
-- `eye_closure_state`
-- `perclos_state`
-- `gaze_state`
-- `global_risk_state`
-
-Cada estado deve armazenar:
-
-- valor bruto atual;
-- valor suavizado;
-- historico curto para media movel ou EMA;
-- historico temporal em segundos;
-- confianca atual entre `0.0` e `1.0`;
-- cooldown;
-- tempo desde o ultimo evento valido;
-- indicador de disponibilidade da face.
-
-### Sugestao de regra de atualizacao
-
-Para cada frame, calcular uma `evidencia` entre `0.0` e `1.0` para a metrica e atualizar a confianca com subida mais rapida que a descida.
-
-Exemplo simples:
-
-```text
-confianca_nova = clip(
-    confianca_antiga + ganho_subida * evidencia - ganho_descida * (1 - evidencia),
-    0.0,
-    1.0
-)
-```
-
-### Sugestoes iniciais
-
-- `ganho_subida` maior para sinais criticos, como olhos fechados prolongados.
-- `ganho_descida` menor para evitar oscilacao rapida.
-- quando a face sumir por poucos frames, congelar ou degradar lentamente o estado em vez de zerar tudo.
-
-### Resultado esperado
-
-- O sistema deixa de responder apenas ao frame atual e passa a responder a persistencia do comportamento.
+- [ ] Gerar score de confiança `[0.0 - 1.0]` baseado em:
+  - tempo que a janela está preenchida (evita alerta cedo)
+  - consistência do sinal de fechamento
+  - qualidade da detecção da face
+- [ ] Elevar confiança quando PERCLOS persiste alto
+- [ ] Diminuir confiança gradualmente quando PERCLOS baixa
 
 ---
 
-## Etapa 3 - Definir a semantica de cada metrica
+## Sprint 2 - Implementação de MAR
 
-### 3.1 MAR e bocejo
+Implementar o processo de captura de MAR (Mouth Aspect Ratio) para detectar boca aberta e bocejos.
 
-### O que fazer
+### Tarefa 2.1: Capturar estado da boca por frame
 
-- Continuar usando `MAR` para medir abertura da boca.
-- Separar `boca aberta` de `bocejo`.
-- Exigir amplitude alta e persistencia para chamar de bocejo.
+- [ ] Usar a métrica `MAR` para medir abertura da boca
+- [ ] Definir threshold para boca aberta simples (ex: `MAR_OPEN_THRESHOLD = 0.5`)
+- [ ] Definir threshold para bocejo (ex: `MAR_YAWN_THRESHOLD = 0.9`)
+- [ ] Gerar estado: `MOUTH_CLOSED`, `MOUTH_OPEN`, `YAWN_LIKE`
+- [ ] Aplicar suavização para reduzir efeitos de fala rápida
 
-### Sugestao pratica
+### Tarefa 2.2: Diferenciar fala de bocejo
 
-- `MAR_OPEN_THRESHOLD`: indica boca aberta, mas nao bocejo.
-- `MAR_YAWN_LIKE_THRESHOLD`: abertura forte.
-- `MIN_YAWN_FRAMES` ou tempo equivalente em segundos: confirma bocejo apenas se a abertura forte persistir.
-- aplicar cooldown apos detectar bocejo.
+- [ ] Reconhecer que fala abre bastante a boca por poucos frames
+- [ ] Bocejo requer: amplitude alta + persistência + curva lenta de abertura/fechamento
+- [ ] Medir duração do evento (bocejo típico: `0.5 - 1.5 s`)
+- [ ] Aplicar cooldown após detectar bocejo
 
-### Cuidado importante
+### Tarefa 2.3: Calcular confiança de MAR
 
-Fala pode abrir bastante a boca por alguns frames. Por isso bocejo deve depender de:
-
-- amplitude;
-- persistencia;
-- talvez curva de abertura e fechamento mais lenta que a fala.
-
-### 3.2 EAR e fechamento ocular
-
-### O que fazer
-
-- Continuar usando `EAR` como sinal instantaneo de fechamento ocular.
-- Diferenciar piscada normal de olhos fechados por tempo anormal.
-
-### Sugestao pratica
-
-- `EAR_CLOSED_THRESHOLD`: limiar de olho fechado.
-- usar suavizacao curta para reduzir jitter.
-- so considerar `olhos fechados` apos alguns frames consecutivos.
-
-### Cuidado importante
-
-Piscada normal nao deve elevar o risco global de forma forte.
-O risco deve subir quando o fechamento durar mais do que uma piscada comum.
-
-### 3.3 PERCLOS
-
-### O que fazer
-
-- Manter uma janela deslizante de tempo real para PERCLOS.
-- Alimentar essa janela com um estado binario ou probabilistico de olhos fechados.
-
-### Sugestao pratica
-
-- janela inicial: `20 segundos`;
-- gerar alerta de fadiga apenas quando a janela estiver suficientemente preenchida;
-- usar `PERCLOS` como o principal sinal acumulado de sonolencia.
-
-### Cuidado importante
-
-`PERCLOS` nao deve disparar cedo demais quando o sistema ainda esta aquecendo ou quando a face acabou de voltar.
-
-### 3.4 Gaze e desatencao
-
-### O que fazer
-
-- Continuar usando a posicao horizontal da iris.
-- Criar uma confianca temporal de desatencao para quando o olhar permanecer fora da zona neutra.
-
-### Sugestao pratica
-
-- considerar uma faixa neutra central;
-- contar desatencao apenas quando o desvio persistir por tempo suficiente;
-- inicialmente usar gaze como fator complementar, nao como gatilho mais severo.
-
-### Cuidado importante
-
-Movimentos breves de verificacao lateral nao devem ser classificados como desatencao critica.
+- [ ] Gerar score de confiança `[0.0 - 1.0]` baseado em:
+  - amplitude do sinal (quão aberta está a boca)
+  - duração da abertura
+  - frequência de ocorrência
+- [ ] Elevar confiança rapidamente para abertura sustentada
+- [ ] Diminuir confiança ao detectar fala vs bocejo
 
 ---
 
-## Etapa 4 - Criar o agregador global de risco
+## Sprint 3 - Implementação de Posição do Olhar
 
-### O que fazer
+Implementar o processo de tracking da posição do olhar (gaze) para detectar desatenção visual.
 
-Combinar as confiancas das metricas em um unico escore global.
+### Tarefa 3.1: Extrair posição da íris
 
-### Sugestao inicial de pesos
+- [ ] Localizar o centro da íris dentro do frame
+- [ ] Calcular desvio horizontal e vertical em relação à posição neutra
+- [ ] Definir faixa neutra central (ex: `±15 graus`)
+- [ ] Aplicar suavização para evitar jitter
 
-Use um modelo simples e interpretavel:
+### Tarefa 3.2: Classificar direção do olhar
 
-```text
-risco_global =
-    0.45 * confianca_perclos +
-    0.30 * confianca_olhos_fechados +
-    0.15 * confianca_bocejo +
-    0.10 * confianca_desatencao
-```
+- [ ] Estados: `FORWARD`, `LEFT`, `RIGHT`, `DOWN`, `UP`
+- [ ] Definir thresholds angulares para cada direção
+- [ ] Reconhecer movimento rápido vs. fixação prolongada
+- [ ] Aplicar debounce para evitar oscilações rápidas
 
-### Sugestao de estados globais
+### Tarefa 3.3: Calcular confiança de desatenção visual
 
-- `NORMAL`
-- `ATENCAO`
-- `ALERTA`
-
-### Sugestao de histerese
-
-Exemplo:
-
-- entra em `ATENCAO` se `risco_global >= 0.35`
-- sai de `ATENCAO` so quando `risco_global < 0.25`
-- entra em `ALERTA` se `risco_global >= 0.65`
-- sai de `ALERTA` so quando `risco_global < 0.50`
-
-### Por que fazer assim
-
-Sem histerese, o sistema vai ficar alternando entre estados em transicoes curtas.
-
-### Resultado esperado
-
-- Alertas mais estaveis e mais explicaveis.
+- [ ] Gerar score de confiança `[0.0 - 1.0]` baseado em:
+  - desvio da posição neutra (quanto mais longe, mais alerta)
+  - duração da fixação lateral (deve persistir para ser desatenção)
+  - qualidade da detecção da íris
+- [ ] Elevar confiança quando olhar fica longe por tempo sustentado
+- [ ] Diminuir confiança ao retornar à zona neutra
+- [ ] Não alertar por movimentos breves de verificação
 
 ---
 
-## Etapa 5 - Adicionar avaliacao de qualidade do frame
+## Sprint 4 - Agregar Confianças identificadas
 
-### O que fazer
+Combinar as 3 confiançastemporais (PERCLOS, MAR, Gaze) em um escore global de risco.
 
-Antes de rodar o MediaPipe, medir algumas propriedades do frame:
+### Tarefa 4.1: Estrutura de estado
 
-- brilho medio;
-- faixa dinamica de luminancia;
-- contraste;
-- nitidez aproximada.
+- [ ] Criar variáveis para armazenar:
+  - `confidence_perclos`: [0.0 - 1.0]
+  - `confidence_mar`: [0.0 - 1.0]
+  - `confidence_gaze`: [0.0 - 1.0]
+  - `global_risk`: [0.0 - 1.0]
+  - `global_state`: `NORMAL`, `ATENCAO`, `ALERTA`
 
-### Sugestao de metricas simples
+### Tarefa 4.2: Definir pesos para agregação
 
-- `mean_luma`: media da luminancia;
-- `p10` e `p90`: percentis para medir faixa util de contraste;
-- `dynamic_range = p90 - p10`;
-- `laplacian_var`: variancia do laplaciano para detectar blur.
+- [ ] Estabelecer pesos iniciais:
+  - PERCLOS: `0.50` (sinal mais importante de sonolência)
+  - MAR: `0.30` (bocejo/fadiga)
+  - Gaze: `0.20` (desatenção complementar)
+- [ ] Calcular: `global_risk = 0.50*conf_perclos + 0.30*conf_mar + 0.20*conf_gaze`
 
-### Exemplo de interpretacao
+### Tarefa 4.3: Implementar histerese de estados
 
-- brilho baixo e faixa dinamica baixa: cena escura ou lavada;
-- laplaciano muito baixo: blur ou fora de foco.
-
-### Resultado esperado
-
-- O sistema sabe quando o frame esta ruim antes de confiar totalmente nas metricas faciais.
-
----
-
-## Etapa 6 - Aplicar pre-processamento condicional
-
-### O que fazer
-
-Aplicar filtros antes do MediaPipe apenas se a qualidade do frame estiver ruim.
-
-### Sugestao de ordem de prioridade
-
-1. tentar correcao gama em baixa luz;
-2. testar `CLAHE` no canal de luminancia;
-3. evitar filtros pesados que alterem a geometria da face.
-
-### Regras praticas sugeridas
-
-- se `mean_luma` estiver muito baixo, testar gamma menor que `1.0` para clarear;
-- se a cena estiver com pouco contraste local, testar `CLAHE` em Y ou LAB;
-- se a cena estiver boa, nao aplicar nada.
-
-### Cuidado importante
-
-Nao usar no pipeline principal os efeitos visuais de `filter2.py`, como colormap ou edges.
-Eles servem para visualizacao, nao para robustez do detector facial.
-
-### Resultado esperado
-
-- MediaPipe mais estavel em baixa luz, sem degradar a imagem em cenarios normais.
+- [ ] Estados e transições:
+  - `NORMAL`: `global_risk < 0.25`
+  - `ATENCAO`: `0.25 <= global_risk < 0.65`
+  - `ALERTA`: `global_risk >= 0.65`
+- [ ] Saída de `ATENCAO` apenas quando `global_risk < 0.15`
+- [ ] Saída de `ALERTA` apenas quando `global_risk < 0.45`
+- [ ] Evitar oscilações rápidas de estado
 
 ---
 
-## Etapa 7 - Tratar perda temporaria de face
+## Sprint 5 - Tratar Oclusões de Cada Métrica
 
-### O que fazer
+Implementar degradação graceful quando a face é perdida ou ocluída parcialmente.
 
-Mudar a logica atual que limpa historicos imediatamente quando a face nao e detectada.
+### Tarefa 5.1: Detectar oclusão de face
 
-### Sugestao pratica
+- [ ] Criar contador de frames sem detecção válida de face
+- [ ] Tolerar ausência curta: `0.5 - 1.0 s` (típico: 15-30 frames @ 30 fps)
+- [ ] Diferenciar: perda momentânea vs. perda persistente
 
-- criar um contador de ausencia da face;
-- tolerar uma ausencia curta, por exemplo `0.5 a 1.0 s`;
-- durante essa ausencia curta, congelar ou degradar lentamente as confiancas;
-- somente limpar historicos apos ausencia persistente.
+### Tarefa 5.2: Degradação de confiançass durante oclusão
 
-### Por que fazer assim
+- [ ] Durante perda momentânea:
+  - Não zerar as confiançass imediatamente
+  - Congelar os valores atuais
+  - Começar a decrementar lentamente (ex: `-0.01` por frame)
+- [ ] Durante perda persistente (> 1.0 s):
+  - Sinalizar que face está ausente
+  - Parar de atualizar métricas
+  - Manter estado mas marcar como "congelado"
 
-Isso reduz falsos positivos e evita que o sistema entre em estado inconsistente por um drop momentaneo do detector.
+### Tarefa 5.3: Recuperação após retorno da face
 
----
+- [ ] Quando face retorna:
+  - Retomar atualização normal das confiançass
+  - Permitir aumento natural das confiançass
+  - Não ressaltar o estado anterior (evitar alerta falso)
+- [ ] Log de eventos: entrada/saída de oclusão
 
-## Etapa 8 - Instrumentacao e logging
+### Tarefa 5.4: Suavização ao perder rosto
 
-### O que fazer
-
-Salvar os dados principais por frame ou por timestamp:
-
-- `timestamp`
-- `mar_raw`
-- `mar_smooth`
-- `ear_raw`
-- `ear_smooth`
-- `perclos`
-- `gaze_ratio`
-- `frame_quality`
-- `confidence_yawn`
-- `confidence_eye_closure`
-- `confidence_perclos`
-- `confidence_gaze`
-- `global_risk`
-- `global_state`
-
-### Sugestao pratica
-
-- gerar CSV simples para calibracao;
-- registrar tambem quando um alerta entrou e saiu.
-
-### Resultado esperado
-
-- Base objetiva para ajustar thresholds e pesos com dados reais.
+- [ ] Aplicar degradação suave:
+  - Não cortar abruptamente a confiança
+  - Usar decremento linear ou exponencial
+  - Preservar histórico de PERCLOS (janela deslizante)
 
 ---
 
-## Etapa 9 - Melhorar overlay e interface de depuracao
+## Sprint 6 - Tratamento de Qualidade e Pré-processamento de Frames
 
-### O que fazer
+Implementar avaliação de qualidade e pré-processamento condicional do frame.
 
-Mostrar na tela nao so os valores brutos, mas tambem o estado interno do sistema.
+### Tarefa 6.1: Avaliar qualidade do frame
 
-### Mostrar no overlay
+- [ ] Medir propriedades do frame:
+  - `mean_luma`: média da luminância
+  - `dynamic_range`: faixa de contraste (p90 - p10)
+  - `laplacian_variance`: nitidez aproximada (detecta blur)
+  - `contrast_ratio`: relação de contraste local
 
-- `MAR`, `EAR`, `PERCLOS`;
-- confianca de cada metrica;
-- estado de qualidade do frame;
-- estado global: `NORMAL`, `ATENCAO` ou `ALERTA`;
-- indicador de face ausente ou frame degradado.
+### Tarefa 6.2: Classificar qualidade
 
-### Resultado esperado
+- [ ] Estados: `GOOD`, `DEGRADED`, `POOR`
+- [ ] Regras:
+  - `GOOD`: brilho >50, dynamic_range > 50, laplacian_var > 100
+  - `DEGRADED`: falha em 1-2 critérios
+  - `POOR`: falha em 3+ critérios
+- [ ] Usar qualidade para ajustar confiança nas métricas
 
-- Fica mais facil entender por que um alerta aconteceu.
+### Tarefa 6.3: Aplicar pré-processamento condicional
 
----
+- [ ] Quando `DEGRADED` ou `POOR`:
+  - Tentar correção gama (clarear se muito escuro)
+  - Testar CLAHE na luminância para contraste local
+  - Evitar filtros que distorçam a geometria facial
+- [ ] Quando `GOOD`: usar frame original
 
-## Etapa 10 - Plano de validacao manual
+### Tarefa 6.4: Logging e histórico de qualidade
 
-### Cenarios que precisam ser testados
-
-1. conversa normal sem sonolencia;
-2. bocejo real sustentado;
-3. piscadas naturais;
-4. olhos fechados por alguns segundos;
-5. olhar lateral curto;
-6. olhar lateral sustentado;
-7. ambiente claro;
-8. ambiente escuro;
-9. perda parcial do rosto;
-10. recuperacao da face apos falha temporaria.
-
-### O que observar
-
-- se o alerta demora tempo demais para entrar;
-- se entra cedo demais;
-- se oscila durante eventos curtos;
-- se continua alto depois que o evento terminou;
-- se o pre-processamento realmente melhora a deteccao em baixa luz.
+- [ ] Registrar qualidade por frame
+- [ ] Correlacionar qualidade com confiança das métricas
+- [ ] Identificar cenários problemáticos para calibração
 
 ---
 
-## Sugestoes de implementacao no codigo
+## Parâmetros iniciais sugeridos
 
-### Mudanca minima recomendada
+Esses valores não são definitivos. São um ponto de partida para teste.
 
-Comecar evoluindo `new.py` sem reescrever tudo.
+### Thresholds de EAR (PERCLOS)
 
-### Ordem segura
+- `EAR_CLOSED_THRESHOLD = 0.2`: olho está fechado
+- PERCLOS janela: `20 segundos`
+- Mínimo preenchimento: `10 segundos` antes de alertar
 
-1. adicionar avaliacao de qualidade do frame;
-2. adicionar pre-processamento condicional;
-3. trocar a logica booleana atual por estados com confianca;
-4. criar agregador global;
-5. adicionar logs;
-6. depois refatorar em modulos, se necessario.
+### Thresholds de MAR (Boca)
 
-### Possiveis funcoes novas
+- `MAR_OPEN_THRESHOLD = 0.5`: boca aberta simples
+- `MAR_YAWN_THRESHOLD = 0.9`: suspeita de bocejo
+- `MIN_YAWN_DURATION = 0.5 s`: bocejo requer persistência
+- Cooldown de bocejo: `2-3 s` antes de permitir novo bocejo
 
-- `assess_frame_quality(frame)`
-- `preprocess_frame_if_needed(frame, quality)`
-- `update_yawn_state(...)`
-- `update_eye_closure_state(...)`
-- `update_perclos_state(...)`
-- `update_gaze_state(...)`
-- `update_global_risk(...)`
-- `draw_debug_panel(...)`
-- `write_metrics_log(...)`
+### Thresholds de Gaze (Olhar)
+
+- `GAZE_NEUTRAL_ZONE = 15 graus`: faixa de olhar normal
+- `GAZE_ALERT_THRESHOLD = 25 graus`: desvio considerável
+- `MIN_GAZE_DURATION = 3 s`: olhar deve persistir para desatenção
+
+### Qualidade de Frame
+
+- `MIN_LUMA = 50`: brilho mínimo aceitável
+- `MIN_DYNAMIC_RANGE = 50`: contraste mínimo
+- `MIN_LAPLACIAN_VAR = 100`: nitidez mínima
+
+### Agregação e Estados
+
+- `NORMAL`: global_risk < 0.25
+- `ATENCAO`: 0.25 <= global_risk < 0.65
+- `ALERTA`: global_risk >= 0.65
+- Histerese de saída: -0.10 ponto para cada estado
 
 ---
 
-## Parametros iniciais sugeridos
+## Ordem imprescindível de trabalho
 
-Esses valores nao sao definitivos. Sao um ponto de partida para teste.
-
-### Temporais
-
-- confirmacao de alerta individual: `3 a 5 s`
-- tolerancia para perda de face: `0.5 a 1.0 s`
-- cooldown de bocejo: manter algo proximo do valor atual e ajustar com teste real
-- PERCLOS: manter `20 s` no inicio
-
-### Prioridade dos sinais
-
-- maior peso para `PERCLOS`
-- peso alto para fechamento ocular prolongado
-- peso medio para bocejo
-- peso menor para gaze, pelo menos na primeira versao
-
-### Filosofia de ajuste
-
-- primeiro reduzir falsos positivos;
-- depois recuperar sensibilidade;
-- nunca ajustar tudo ao mesmo tempo.
+1. **Sprint 1**: PERCLOS (foundation de detecção de sonolência)
+2. **Sprint 2**: MAR (detecção complementar)
+3. **Sprint 3**: Gaze (desatenção visual)
+4. **Sprint 4**: Agregação (combinar os 3 sinais)
+5. **Sprint 5**: Oclusões (robustez contra perda de face)
+6. **Sprint 6**: Frames (qualidade e pré-processamento)
 
 ---
 
 ## Erros que valem evitar
 
-- usar media ponderada dos valores crus sem estabilizar cada metrica;
-- zerar todo o estado ao perder a face por poucos frames;
-- aplicar filtros em todos os frames sem necessidade;
-- usar gaze como alerta forte logo na primeira versao;
-- calibrar thresholds so no olho, sem log e sem cenarios repetiveis.
+- Usar média ponderada dos valores crus sem estabilizar cada métrica
+- Zerar todo o estado ao perder a face por poucos frames
+- Aplicar filtros em todos os frames sem necessidade
+- Usar gaze como alerta forte logo na primeira versão
+- Calibrar thresholds só no olho, sem log e sem cenários repetíveis
+- Alertar cedo demais antes da janela estar preenchida
+- Não diferenciar fala de bocejo
+- Não tratar oscilações rápidas durante perda momentânea de face
 
 ---
 
@@ -488,14 +339,12 @@ Esses valores nao sao definitivos. Sao um ponto de partida para teste.
 
 Ao final, o programa deve:
 
-- detectar sonolencia com foco em persistencia, nao em valores instantaneos;
-- reduzir oscilacoes de alerta;
-- reduzir falsos positivos de fala, piscada e movimentos curtos do olhar;
-- lidar melhor com baixa iluminacao;
-- mostrar ao usuario por que o sistema decidiu alertar.
+- Detectar sonolência com foco em persistência, não em valores instantâneos
+- Reduzir oscilações de alerta
+- Reduzir falsos positivos de fala, piscada e movimentos curtos do olhar
+- Lidar melhor com baixa iluminação
+- Mostrar ao usuário por que o sistema decidiu alertar
+- Manter histórico robusto mesmo durante perda momentânea de face
+- Agregar 3 sinais independentes de forma interpretável
 
 ---
-
-## Proximo passo recomendado
-
-Implementar primeiro a `Etapa 2`, `Etapa 5` e `Etapa 7`, porque elas atacam diretamente a causa principal da oscilacao e dos falsos positivos.
