@@ -1,5 +1,97 @@
 from utils.math_utils import euclidean_distance
 
+
+class EyeStateTracker:
+    """
+    Tarefa 1.1: Capturar estado do olho por frame
+    
+    - Usa EAR para determinar se olho está aberto ou fechado
+    - Define threshold claro para classificação
+    - Gera estado binário: EYE_OPEN ou EYE_CLOSED
+    - Aplica suavização leve para reduzir jitter
+    """
+    
+    def __init__(self, ear_closed_threshold=0.05, smoothing_window=3):
+        """
+        Args:
+            ear_closed_threshold: Valor de EAR abaixo do qual olho é considerado fechado
+            smoothing_window: Número de frames para suavização (janela móvel)
+        """
+        self.EAR_CLOSED_THRESHOLD = ear_closed_threshold
+        self.smoothing_window = smoothing_window
+        self.ear_history = []  # Histórico de EAR para suavização
+        self.state_history = []  # Histórico de estados (0=fechado, 1=aberto)
+        self.smoothed_ear = None
+        self.current_state = None
+    
+    def update(self, ear_average):
+        """
+        Atualiza o estado do olho baseado na métrica EAR.
+        
+        Args:
+            ear_average: Valor de EAR calculado do frame atual
+            
+        Returns:
+            dict: {
+                'ear_raw': float - EAR bruto do frame
+                'ear_smoothed': float - EAR suavizado
+                'state': str - 'EYE_OPEN' ou 'EYE_CLOSED'
+                'state_numeric': int - 1 para aberto, 0 para fechado
+            }
+        """
+        # Armazena EAR bruto no histórico
+        self.ear_history.append(ear_average)
+        
+        # Mantém janela de histórico
+        if len(self.ear_history) > self.smoothing_window:
+            self.ear_history.pop(0)
+        
+        # Calcula média móvel para suavização
+        self.smoothed_ear = sum(self.ear_history) / len(self.ear_history)
+        
+        # Determina estado: 1 = aberto, 0 = fechado
+        state_numeric = 1 if self.smoothed_ear >= self.EAR_CLOSED_THRESHOLD else 0
+        self.state_history.append(state_numeric)
+        
+        # Mantém histórico de estados
+        if len(self.state_history) > self.smoothing_window:
+            self.state_history.pop(0)
+        
+        # Define string de estado
+        state_str = "EYE_OPEN" if state_numeric == 1 else "EYE_CLOSED"
+        self.current_state = state_str
+        
+        return {
+            'ear_raw': ear_average,
+            'ear_smoothed': self.smoothed_ear,
+            'state': state_str,
+            'state_numeric': state_numeric
+        }
+    
+    def get_continuous_closure_frames(self):
+        """
+        Retorna quantos frames consecutivos o olho está fechado.
+        Útil para diferenciar piscada de fechamento prolongado.
+        """
+        if not self.state_history:
+            return 0
+        
+        count = 0
+        for state in reversed(self.state_history):
+            if state == 0:  # fechado
+                count += 1
+            else:
+                break
+        return count
+    
+    def reset(self):
+        """Reseta o histórico (usar quando face é perdida)."""
+        self.ear_history = []
+        self.state_history = []
+        self.smoothed_ear = None
+        self.current_state = None
+
+
 def get_gaze_direction(face_landmarks):
     right_inner = face_landmarks[33]
     right_outer = face_landmarks[133]

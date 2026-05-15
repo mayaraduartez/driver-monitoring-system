@@ -6,7 +6,7 @@ from mediapipe.tasks.python.vision import drawing_utils
 import math
 from utils.drawing import draw_landmarks_on_image
 from utils.math_utils import euclidean_distance
-from detectors.eye_detector import get_gaze_direction, get_eye_aspect_ratio
+from detectors.eye_detector import get_gaze_direction, get_eye_aspect_ratio, EyeStateTracker
 from detectors.mouth_detector import get_mouth_data
 from detectors.hand_detector import is_hand_on_mouth
 
@@ -34,6 +34,10 @@ options_hands = vision.HandLandmarkerOptions(
     num_hands=2
 )
 hand_detector = vision.HandLandmarker.create_from_options(options_hands)
+
+
+# Sprint 1 - Tarefa 1.1: Inicializar rastreador de estado do olho
+eye_state_tracker = EyeStateTracker(ear_closed_threshold=0.05, smoothing_window=3)
 
 # loop principal: lê os frames da câmera, processa as detecções faciais e de mãos, e exibe os resultados na tela
 while True:
@@ -83,6 +87,10 @@ while True:
                 mouth_x,
                 mouth_y
             )
+            
+            # Sprint 1 - Tarefa 1.1: Atualizar estado do olho com EAR
+            ear_right, ear_left, ear_average = get_eye_aspect_ratio(face_landmarks)
+            eye_state = eye_state_tracker.update(ear_average)
 
             # exibe a direção do olhar e se a mão está na boca na imagem anotada usando a função cv2.putText, que desenha texto na imagem. A direção do olhar é exibida em azul, enquanto a indicação de bocejo com mão é exibida em vermelho.
             cv2.putText(annotated_image, direcao,
@@ -90,6 +98,16 @@ while True:
                         cv2.FONT_HERSHEY_SIMPLEX,
                         1,
                         (255, 0, 0),
+                        2)
+            
+            # Exibe estado do olho e EAR suavizado
+            eye_color = (0, 255, 0) if eye_state['state'] == 'EYE_OPEN' else (0, 0, 255)
+            cv2.putText(annotated_image, 
+                        f"Olho: {eye_state['state']} | EAR: {eye_state['ear_smoothed']:.2f}",
+                        (50, 150),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        eye_color,
                         2)
 
             if mao_na_boca:
@@ -99,6 +117,9 @@ while True:
                             1,
                             (0, 0, 255),
                             2)
+    else:
+        # Quando face não é detectada, resetar o rastreador de estado
+        eye_state_tracker.reset()
 
    
     cv2.imshow('Annotated Image', cv2.cvtColor(annotated_image, cv2.COLOR_RGB2BGR))
