@@ -1,4 +1,6 @@
 from utils.math_utils import euclidean_distance
+from collections import deque
+import time
 
 # Calcula se o olho está aberto ou fechado usando EAR.
 # Calcula para onde a pessoa está olhando: esquerda, direita ou frente.
@@ -26,6 +28,11 @@ class EyeStateTracker:
 
         self.current_state = "CALIBRATING" #estado inicial
 
+        self.closed_confidence = TemporalConfidence(
+            increase_rate=0.08,
+            decrease_rate=0.04
+        )
+
     def update(self, ear_average):
         self.ear_history.append(ear_average)
 
@@ -50,7 +57,9 @@ class EyeStateTracker:
                 "state": self.current_state,
                 "state_numeric": 1,
                 "threshold": self.close_threshold,
-                "open_ear": self.open_ear
+                "open_ear": self.open_ear,
+                "confidence": 0.0
+
             }
 
         # atualiza lentamente o EAR aberto quando o olho está claramente aberto
@@ -70,13 +79,18 @@ class EyeStateTracker:
             if ear_smoothed > self.open_threshold:
                 self.current_state = "EYE_OPEN"
 
+        confidence = self.closed_confidence.update(
+            self.current_state == "EYE_CLOSED"
+        )
+
         return {
             "ear_raw": ear_average, # ear original
             "ear_smoothed": ear_smoothed, # ear suavizado
             "state": self.current_state, # estado
             "state_numeric": 1 if self.current_state == "EYE_OPEN" else 0, # estado em 0 ou 1
             "threshold": self.close_threshold, # threshold de fechamento
-            "open_ear": self.open_ear # ear medio estimado para olho aberto 
+            "open_ear": self.open_ear, # ear medio estimado para olho aberto 
+            "confidence": confidence
         }
 
     # usado quando perde o rosto
@@ -87,6 +101,85 @@ class EyeStateTracker:
         self.close_threshold = None
         self.open_threshold = None
         self.current_state = "CALIBRATING"
+        self.closed_confidence.reset()
+
+class PerclosTracker:
+    def __init__(self, window_seconds=20):
+        self.window_seconds = window_seconds
+        self.frames = deque()
+
+    def update(self, eye_state_numeric):
+        now = time.time()
+
+        # Guarda o frame atual
+        # 1 = olho aberto
+        # 0 = olho fechado
+        self.frames.append({
+            "time": now,
+            "closed": 1 if eye_state_numeric == 0 else 0
+        })
+
+        # Remove frames fora da janela de tempo
+        while self.frames and now - self.frames[0]["time"] > self.window_seconds:
+            self.frames.popleft()
+
+        total_frames = len(self.frames)
+
+        if total_frames == 0:
+            return {
+                "perclos": 0,
+                "closed_frames": 0,
+                "total_frames": 0
+            }
+
+        closed_frames = sum(frame["closed"] for frame in self.frames)
+
+        perclos = (closed_frames / total_frames) * 100
+
+        return {
+            "perclos": perclos,
+            "closed_frames": closed_frames,
+            "total_frames": total_frames
+        }
+
+    def reset(self):
+        self.frames.clear()
+
+class TemporalConfidence:
+    def __init__(
+        self,
+        increase_rate=0.08,
+        decrease_rate=0.04,
+        min_confidence=0.0,
+        max_confidence=1.0
+    ):
+        self.increase_rate = increase_rate
+        self.decrease_rate = decrease_rate
+        self.min_confidence = min_confidence
+        self.max_confidence = max_confidence
+        self.confidence = 0.0
+
+    def update(self, evidence_present):
+        """
+        evidence_present:
+            True  = evidência presente
+            False = evidência ausente
+        """
+
+        if evidence_present:
+            self.confidence += self.increase_rate
+        else:
+            self.confidence -= self.decrease_rate
+
+        self.confidence = max(
+            self.min_confidence,
+            min(self.confidence, self.max_confidence)
+        )
+
+        return self.confidence
+
+    def reset(self):
+        self.confidence = 0.0
 
 def get_gaze_direction(face_landmarks):
     right_inner = face_landmarks[33]

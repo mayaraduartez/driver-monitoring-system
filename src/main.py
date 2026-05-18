@@ -6,7 +6,7 @@ from mediapipe.tasks.python.vision import drawing_utils
 import math
 from utils.drawing import draw_landmarks_on_image
 from utils.math_utils import euclidean_distance
-from detectors.eye_detector import get_gaze_direction, get_eye_aspect_ratio, EyeStateTracker
+from detectors.eye_detector import get_gaze_direction, get_eye_aspect_ratio, EyeStateTracker, PerclosTracker
 from detectors.mouth_detector import get_mouth_data
 from detectors.hand_detector import is_hand_on_mouth
 
@@ -36,13 +36,18 @@ options_hands = vision.HandLandmarkerOptions(
 hand_detector = vision.HandLandmarker.create_from_options(options_hands)
 
 
-# Sprint 1 - Tarefa 1.1: Inicializar rastreador de estado do olho
+#Inicializar rastreador de estado do olho
 eye_state_tracker = EyeStateTracker(
     smoothing_window=5,
     calibration_frames=60,
     closed_ratio=0.72,
     open_margin=0.03
 )
+# inicializa a janela de tempo do perclos
+perclos_tracker = PerclosTracker(window_seconds=20)
+
+
+
 
 # loop principal: lê os frames da câmera, processa as detecções faciais e de mãos, e exibe os resultados na tela
 while True:
@@ -93,9 +98,13 @@ while True:
                 mouth_y
             )
             
-            # Sprint 1 - Tarefa 1.1: Atualizar estado do olho com EAR
+            #Atualizar estado do olho com EAR
             ear_right, ear_left, ear_average = get_eye_aspect_ratio(face_landmarks)
             eye_state = eye_state_tracker.update(ear_average)
+            perclos_data = perclos_tracker.update(eye_state["state_numeric"])
+
+            # confianca perclos
+            closed_confidence = eye_state["confidence"]
 
             # exibe a direção do olhar e se a mão está na boca na imagem anotada usando a função cv2.putText, que desenha texto na imagem. A direção do olhar é exibida em azul, enquanto a indicação de bocejo com mão é exibida em vermelho.
             cv2.putText(annotated_image, direcao,
@@ -117,6 +126,26 @@ while True:
                 2
             )
 
+            cv2.putText(
+                annotated_image,
+                f"PERCLOS: {perclos_data['perclos']:.1f}% | Fechados: {perclos_data['closed_frames']}/{perclos_data['total_frames']}",
+                (50, 190),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 255, 255),
+                2
+            )
+
+            cv2.putText(
+                annotated_image,
+                f"Conf olho fechado: {closed_confidence:.2f}",
+                (50, 220),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (255, 255, 0),
+                2
+            )
+
             if mao_na_boca:
                 cv2.putText(annotated_image, "Mao na boca",
                             (50, 50),
@@ -126,7 +155,7 @@ while True:
                             2)
     else:
         # Quando face não é detectada, resetar o rastreador de estado
-        eye_state_tracker.reset()
+        perclos_tracker.reset()
 
    
     cv2.imshow('Annotated Image', cv2.cvtColor(annotated_image, cv2.COLOR_RGB2BGR))
