@@ -1,96 +1,92 @@
 from utils.math_utils import euclidean_distance
 
+# Calcula se o olho está aberto ou fechado usando EAR.
+# Calcula para onde a pessoa está olhando: esquerda, direita ou frente.
+# Calcula o valor eAR dos dois olhos
 
 class EyeStateTracker:
-    """
-    Tarefa 1.1: Capturar estado do olho por frame
-    
-    - Usa EAR para determinar se olho está aberto ou fechado
-    - Define threshold claro para classificação
-    - Gera estado binário: EYE_OPEN ou EYE_CLOSED
-    - Aplica suavização leve para reduzir jitter
-    """
-    
-    def __init__(self, ear_closed_threshold=0.05, smoothing_window=3):
-        """
-        Args:
-            ear_closed_threshold: Valor de EAR abaixo do qual olho é considerado fechado
-            smoothing_window: Número de frames para suavização (janela móvel)
-        """
-        self.EAR_CLOSED_THRESHOLD = ear_closed_threshold
+    def __init__(
+        self,
+        smoothing_window=5, # quantos frames usados pra suavizar o EAR
+        calibration_frames=60,# quantos frames usados pra calibrar o olho aberto
+        closed_ratio=0.72, #percentual do EAR aberto que será considerado limite para olho fechado
+        open_margin=0.03 #margem para evitar oscilação entre aberto e fechado (histerese)
+    ):
         self.smoothing_window = smoothing_window
-        self.ear_history = []  # Histórico de EAR para suavização
-        self.state_history = []  # Histórico de estados (0=fechado, 1=aberto)
-        self.smoothed_ear = None
-        self.current_state = None
-    
+        self.calibration_frames = calibration_frames
+        self.closed_ratio = closed_ratio
+        self.open_margin = open_margin
+
+        self.ear_history = [] # lista com ultimos valores de EAR
+        self.open_ear_samples = [] #lista usada somente durante a calibraçao inicial
+
+        self.open_ear = None # ear medio do olho aberto
+        self.close_threshold = None
+        self.open_threshold = None
+
+        self.current_state = "CALIBRATING" #estado inicial
+
     def update(self, ear_average):
-        """
-        Atualiza o estado do olho baseado na métrica EAR.
-        
-        Args:
-            ear_average: Valor de EAR calculado do frame atual
-            
-        Returns:
-            dict: {
-                'ear_raw': float - EAR bruto do frame
-                'ear_smoothed': float - EAR suavizado
-                'state': str - 'EYE_OPEN' ou 'EYE_CLOSED'
-                'state_numeric': int - 1 para aberto, 0 para fechado
-            }
-        """
-        # Armazena EAR bruto no histórico
         self.ear_history.append(ear_average)
-        
-        # Mantém janela de histórico
+
         if len(self.ear_history) > self.smoothing_window:
             self.ear_history.pop(0)
-        
-        # Calcula média móvel para suavização
-        self.smoothed_ear = sum(self.ear_history) / len(self.ear_history)
-        
-        # Determina estado: 1 = aberto, 0 = fechado
-        state_numeric = 1 if self.smoothed_ear >= self.EAR_CLOSED_THRESHOLD else 0
-        self.state_history.append(state_numeric)
-        
-        # Mantém histórico de estados
-        if len(self.state_history) > self.smoothing_window:
-            self.state_history.pop(0)
-        
-        # Define string de estado
-        state_str = "EYE_OPEN" if state_numeric == 1 else "EYE_CLOSED"
-        self.current_state = state_str
-        
-        return {
-            'ear_raw': ear_average,
-            'ear_smoothed': self.smoothed_ear,
-            'state': state_str,
-            'state_numeric': state_numeric
-        }
-    
-    def get_continuous_closure_frames(self):
-        """
-        Retorna quantos frames consecutivos o olho está fechado.
-        Útil para diferenciar piscada de fechamento prolongado.
-        """
-        if not self.state_history:
-            return 0
-        
-        count = 0
-        for state in reversed(self.state_history):
-            if state == 0:  # fechado
-                count += 1
-            else:
-                break
-        return count
-    
-    def reset(self):
-        """Reseta o histórico (usar quando face é perdida)."""
-        self.ear_history = []
-        self.state_history = []
-        self.smoothed_ear = None
-        self.current_state = None
 
+        ear_smoothed = sum(self.ear_history) / len(self.ear_history)
+
+        # calibração inicial assumindo que o usuário começa com olho aberto
+        if len(self.open_ear_samples) < self.calibration_frames:
+            self.open_ear_samples.append(ear_smoothed)
+
+            self.open_ear = sum(self.open_ear_samples) / len(self.open_ear_samples) # calcula a media do olho aberto
+            self.close_threshold = self.open_ear * self.closed_ratio # calcula limite do olho fechado
+            self.open_threshold = self.close_threshold + self.open_margin # calcula o limite para voltar a considerar o olho aberto
+
+            self.current_state = "CALIBRATING"
+
+            return {
+                "ear_raw": ear_average,
+                "ear_smoothed": ear_smoothed,
+                "state": self.current_state,
+                "state_numeric": 1,
+                "threshold": self.close_threshold,
+                "open_ear": self.open_ear
+            }
+
+        # atualiza lentamente o EAR aberto quando o olho está claramente aberto
+        if ear_smoothed > self.open_threshold:
+            self.open_ear = (self.open_ear * 0.98) + (ear_smoothed * 0.02) # atualiza lentamente o valor de EAR aberto, usa 98% do antigo ee 4% do nov, para não mudar bruscamente
+            #recalcula os thresholds
+            self.close_threshold = self.open_ear * self.closed_ratio
+            self.open_threshold = self.close_threshold + self.open_margin
+
+        # histerese: evita ficar alternando aberto/fechado
+        if self.current_state != "EYE_CLOSED":
+            if ear_smoothed < self.close_threshold:
+                self.current_state = "EYE_CLOSED"
+            else:
+                self.current_state = "EYE_OPEN"
+        else:
+            if ear_smoothed > self.open_threshold:
+                self.current_state = "EYE_OPEN"
+
+        return {
+            "ear_raw": ear_average, # ear original
+            "ear_smoothed": ear_smoothed, # ear suavizado
+            "state": self.current_state, # estado
+            "state_numeric": 1 if self.current_state == "EYE_OPEN" else 0, # estado em 0 ou 1
+            "threshold": self.close_threshold, # threshold de fechamento
+            "open_ear": self.open_ear # ear medio estimado para olho aberto 
+        }
+
+    # usado quando perde o rosto
+    def reset(self):
+        self.ear_history = []
+        self.open_ear_samples = []
+        self.open_ear = None
+        self.close_threshold = None
+        self.open_threshold = None
+        self.current_state = "CALIBRATING"
 
 def get_gaze_direction(face_landmarks):
     right_inner = face_landmarks[33]
@@ -117,47 +113,24 @@ def get_gaze_direction(face_landmarks):
     else:
         return "Olhando FRENTE"
 
-
+# calcula o EAR dos dois olhos 
 def get_eye_aspect_ratio(face_landmarks):
-    """
-    Calcula EAR (Eye Aspect Ratio) para ambos os olhos.
-    
-    EAR = (||P2-P6|| + ||P3-P5||) / (2 * ||P1-P4||)
-    
-    Onde P1-P6 são as landmarks ao redor do olho.
-    Landmarks do olho direito: 33-46
-    Landmarks do olho esquerdo: 263-276
-    
-    Returns:
-        tuple: (ear_right, ear_left, ear_average)
-    """
-    
-    # Landmarks do olho direito
-    right_p1 = face_landmarks[33]  # canto esquerdo
-    right_p2 = face_landmarks[37]  # pálpebra superior esquerda
-    right_p3 = face_landmarks[38]  # pálpebra superior centro
-    right_p4 = face_landmarks[40]  # canto direito
-    right_p5 = face_landmarks[41]  # pálpebra inferior centro
-    right_p6 = face_landmarks[42]  # pálpebra inferior esquerda
-    
-    # Landmarks do olho esquerdo
-    left_p1 = face_landmarks[263]  # canto esquerdo
-    left_p2 = face_landmarks[267]  # pálpebra superior esquerda
-    left_p3 = face_landmarks[268]  # pálpebra superior centro
-    left_p4 = face_landmarks[270]  # canto direito
-    left_p5 = face_landmarks[271]  # pálpebra inferior centro
-    left_p6 = face_landmarks[272]  # pálpebra inferior esquerda
-    
-    def calculate_ear(p1, p2, p3, p4, p5, p6):
-        vertical_left = euclidean_distance(p2, p6)
-        vertical_center = euclidean_distance(p3, p5)
+    right = [33, 160, 158, 133, 153, 144]
+    left  = [362, 385, 387, 263, 373, 380]
+
+    def calc(points):
+        p1, p2, p3, p4, p5, p6 = [face_landmarks[i] for i in points]
+
+        vertical_1 = euclidean_distance(p2, p6)
+        vertical_2 = euclidean_distance(p3, p5)
         horizontal = euclidean_distance(p1, p4)
-        
-        ear = (vertical_left + vertical_center) / (2 * horizontal)
-        return ear
-    
-    ear_right = calculate_ear(right_p1, right_p2, right_p3, right_p4, right_p5, right_p6)
-    ear_left = calculate_ear(left_p1, left_p2, left_p3, left_p4, left_p5, left_p6)
-    ear_average = (ear_right + ear_left) / 2
-    
-    return ear_right, ear_left, ear_average
+
+        if horizontal == 0:
+            return 0
+
+        return (vertical_1 + vertical_2) / (2.0 * horizontal)
+
+    ear_right = calc(right)
+    ear_left = calc(left)
+
+    return ear_right, ear_left, (ear_right + ear_left) / 2

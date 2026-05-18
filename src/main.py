@@ -37,7 +37,12 @@ hand_detector = vision.HandLandmarker.create_from_options(options_hands)
 
 
 # Sprint 1 - Tarefa 1.1: Inicializar rastreador de estado do olho
-eye_state_tracker = EyeStateTracker(ear_closed_threshold=0.05, smoothing_window=3)
+eye_state_tracker = EyeStateTracker(
+    smoothing_window=5,
+    calibration_frames=60,
+    closed_ratio=0.72,
+    open_margin=0.03
+)
 
 # loop principal: lê os frames da câmera, processa as detecções faciais e de mãos, e exibe os resultados na tela
 while True:
@@ -102,13 +107,15 @@ while True:
             
             # Exibe estado do olho e EAR suavizado
             eye_color = (0, 255, 0) if eye_state['state'] == 'EYE_OPEN' else (0, 0, 255)
-            cv2.putText(annotated_image, 
-                        f"Olho: {eye_state['state']} | EAR: {eye_state['ear_smoothed']:.2f}",
-                        (50, 150),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7,
-                        eye_color,
-                        2)
+            cv2.putText(
+                annotated_image,
+                f"Olho: {eye_state['state']} | EAR: {eye_state['ear_smoothed']:.3f} | TH: {eye_state['threshold']:.3f}",
+                (50, 150),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                eye_color,
+                2
+            )
 
             if mao_na_boca:
                 cv2.putText(annotated_image, "Mao na boca",
