@@ -7,8 +7,12 @@ import math
 from utils.drawing import draw_landmarks_on_image
 from utils.math_utils import euclidean_distance
 from detectors.eye_detector import get_gaze_direction, get_eye_aspect_ratio, EyeStateTracker, PerclosTracker
-from detectors.mouth_detector import get_mouth_data
 from detectors.hand_detector import is_hand_on_mouth
+from detectors.mouth_detector import (
+    get_mouth_data,
+    MouthStateTracker,
+    MouthOpenTracker
+)
 
 # Inicializacao 
 capture = cv2.VideoCapture(0) # 0 ou o caminho do video 
@@ -46,8 +50,19 @@ eye_state_tracker = EyeStateTracker(
 # inicializa a janela de tempo do perclos
 perclos_tracker = PerclosTracker(window_seconds=20)
 
+mouth_state_tracker = MouthStateTracker(
+    smoothing_window=5,
+    baseline_window=300,
+    open_ratio=1.60,
+    min_open_threshold=0.30,
+    close_margin=0.03,
+    yawn_min_frames=30
+)
 
+mouth_open_tracker = MouthOpenTracker(window_seconds=20)
 
+face_lost_frames = 0
+FACE_LOST_RESET_FRAMES = 30
 
 # loop principal: lê os frames da câmera, processa as detecções faciais e de mãos, e exibe os resultados na tela
 while True:
@@ -91,6 +106,13 @@ while True:
             direcao = get_gaze_direction(face_landmarks)
 
             mouth_ratio, mouth_x, mouth_y = get_mouth_data(face_landmarks)
+            mouth_state = mouth_state_tracker.update(mouth_ratio)
+
+            mouth_open_data = mouth_open_tracker.update(
+                mouth_state["state_numeric"]
+            )
+
+            mouth_confidence = mouth_state["confidence"]
 
             mao_na_boca = is_hand_on_mouth(
                 hand_result.hand_landmarks,
@@ -145,6 +167,25 @@ while True:
                 (255, 255, 0),
                 2
             )
+            cv2.putText(
+                annotated_image,
+                f"Boca: {mouth_state['state']} | MAR: {mouth_state['mar_smoothed']:.3f} | TH: {mouth_state['threshold']:.3f}",
+                (50, 260),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (255, 150, 0),
+                2
+            )
+
+            cv2.putText(
+                annotated_image,
+                f"Boca aberta: {mouth_open_data['mouth_open_percent']:.1f}% | Conf: {mouth_confidence:.2f}",
+                (50, 290),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (255, 150, 0),
+                2
+            )
 
             if mao_na_boca:
                 cv2.putText(annotated_image, "Mao na boca",
@@ -155,7 +196,14 @@ while True:
                             2)
     else:
         # Quando face não é detectada, resetar o rastreador de estado
-        perclos_tracker.reset()
+        face_lost_frames += 1
+
+        if face_lost_frames > FACE_LOST_RESET_FRAMES:
+            eye_state_tracker.reset()
+            perclos_tracker.reset()
+            mouth_state_tracker.reset()
+            mouth_open_tracker.reset()
+        
 
    
     cv2.imshow('Annotated Image', cv2.cvtColor(annotated_image, cv2.COLOR_RGB2BGR))
