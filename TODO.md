@@ -78,26 +78,50 @@ Essa abordagem e melhor que:
 
 ## Sprint 1 - Implementação de PERCLOS
 
-Implementar o processo de captura de PERCLOS (Percentage of Eyelid Closure) baseado em EAR.
+✅ **CONCLUÍDO** - Implementação do processo de captura de PERCLOS (Percentage of Eyelid Closure) baseado em EAR.
 
 ### Tarefa 1.1: Capturar estado do olho por frame
 
-- [ ] Usar a métrica `EAR` (Eye Aspect Ratio) para determinar se olho está aberto ou fechado
-- [ ] Definir threshold claro para classificação (ex: `EAR_CLOSED_THRESHOLD = 0.2`)
-- [ ] Gerar estado binário: `EYE_OPEN` ou `EYE_CLOSED` por frame
-- [ ] Aplicar suavização leve para reduzir jitter
+- [x] Usar a métrica `EAR` (Eye Aspect Ratio) para determinar se olho está aberto ou fechado
+  - Implementado em `eye_detector.py`: função `get_eye_aspect_ratio()`
+  - Calcula EAR para olho direito, esquerdo e média
+  
+- [x] Definir threshold claro para classificação (ex: `EAR_CLOSED_THRESHOLD = 0.2`)
+  - Implementado em `EyeStateTracker`: `closed_ratio = 0.72` (percentual do EAR aberto)
+  - `close_threshold = open_ear * 0.72`
+  - `open_threshold = close_threshold + 0.03` (histerese para evitar oscilação)
+  
+- [x] Gerar estado binário: `EYE_OPEN` ou `EYE_CLOSED` por frame
+  - Estados: "CALIBRATING", "EYE_OPEN", "EYE_CLOSED"
+  - Retorna estado_numeric: 1 (aberto) ou 0 (fechado)
+  
+- [x] Aplicar suavização leve para reduzir jitter
+  - Implementado: `smoothing_window = 5` frames
+  - Media móvel dos últimos 5 valores de EAR
 
 ### Tarefa 1.2: Calcular porcentagem na janela
 
-- [ ] Manter janela deslizante de tempo (ex: 20 segundos)
-- [ ] Contabilizar frames com olho fechado vs. aberto
-- [ ] Calcular: `PERCLOS = (frames_fechados / total_frames) * 100%`
-- [ ] Atualizar valor a cada novo frame
+- [x] Manter janela deslizante de tempo (ex: 20 segundos)
+  - Implementado em `PerclosTracker`: `window_seconds = 20`
+  
+- [x] Contabilizar frames com olho fechado vs. aberto
+  - Cada frame armazenado com timestamp e estado (closed: 0 ou 1)
+  - Deque automático remove frames antigos (> 20 segundos)
+  
+- [x] Calcular: `PERCLOS = (frames_fechados / total_frames) * 100%`
+  - Fórmula exata implementada: `perclos = (closed_frames / total_frames) * 100`
+  
+- [x] Atualizar valor a cada novo frame
+  - Método `update()` chamado a cada frame em `main.py`
 
 ### Tarefa 1.3: Calcular confiança do PERCLOS
 
-- [ ] Gerar score de confiança `[0.0 - 1.0]` baseado em:
-  - tempo que a janela está preenchida (evita alerta cedo)
+- [x] Gerar score de confiança `[0.0 - 1.0]` baseado em:
+  - Classe `TemporalConfidence` implementada
+  - `increase_rate = 0.08` (sobe quando evidência persiste)
+  - `decrease_rate = 0.04` (cai gradualmente quando evidência some)
+  - Intervalo: `[0.0 - 1.0]`
+  - Tempo de preenchimento da janela: controla início dos alertas (primeiros frames não geram confiança alta)
   - consistência do sinal de fechamento
   - qualidade da detecção da face
 - [ ] Elevar confiança quando PERCLOS persiste alto
@@ -107,11 +131,14 @@ Implementar o processo de captura de PERCLOS (Percentage of Eyelid Closure) base
 
 ## Sprint 2 - Implementação de MAR
 
-Implementar o processo de captura de MAR (Mouth Aspect Ratio) para detectar boca aberta e bocejos.
+🔶 **EM ANDAMENTO** - Implementação de MAR (Mouth Aspect Ratio) para detectar boca aberta e bocejos.
 
 ### Tarefa 2.1: Capturar estado da boca por frame
 
-- [ ] Usar a métrica `MAR` para medir abertura da boca
+- [x] Usar a métrica `MAR` para medir abertura da boca
+  - Implementado em `mouth_detector.py`: função `get_mouth_data()`
+  - Calcula: `MAR = (vertical_left + vertical_center + vertical_right) / (2 * horizontal)`
+  
 - [ ] Definir threshold para boca aberta simples (ex: `MAR_OPEN_THRESHOLD = 0.5`)
 - [ ] Definir threshold para bocejo (ex: `MAR_YAWN_THRESHOLD = 0.9`)
 - [ ] Gerar estado: `MOUTH_CLOSED`, `MOUTH_OPEN`, `YAWN_LIKE`
@@ -137,19 +164,29 @@ Implementar o processo de captura de MAR (Mouth Aspect Ratio) para detectar boca
 
 ## Sprint 3 - Implementação de Posição do Olhar
 
-Implementar o processo de tracking da posição do olhar (gaze) para detectar desatenção visual.
+✅ **CONCLUÍDO** - Implementação do tracking da posição do olhar (gaze) para detectar desatenção visual.
 
 ### Tarefa 3.1: Extrair posição da íris
 
-- [ ] Localizar o centro da íris dentro do frame
-- [ ] Calcular desvio horizontal e vertical em relação à posição neutra
+- [x] Localizar o centro da íris dentro do frame
+  - Implementado em `eye_detector.py`: função `get_gaze_direction()`
+  - Usa landmarks: 468 (íris direita), 473 (íris esquerda)
+  
+- [x] Calcular desvio horizontal e vertical em relação à posição neutra
+  - Usa landmarks dos cantos internos (33, 362) e externos (133, 263)
+  - Calcula ratio: `gaze_ratio = (right_ratio + left_ratio) / 2`
+  
 - [ ] Definir faixa neutra central (ex: `±15 graus`)
 - [ ] Aplicar suavização para evitar jitter
 
 ### Tarefa 3.2: Classificar direção do olhar
 
-- [ ] Estados: `FORWARD`, `LEFT`, `RIGHT`, `DOWN`, `UP`
-- [ ] Definir thresholds angulares para cada direção
+- [x] Estados básicos implementados:
+  - `gaze_ratio < 0.4`: "Olhando ESQUERDA"
+  - `gaze_ratio > 0.6`: "Olhando DIREITA"  
+  - Caso contrário: "Olhando FRENTE"
+  
+- [ ] Implementar estados mais granulares: `DOWN`, `UP`
 - [ ] Reconhecer movimento rápido vs. fixação prolongada
 - [ ] Aplicar debounce para evitar oscilações rápidas
 
