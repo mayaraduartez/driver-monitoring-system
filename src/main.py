@@ -89,6 +89,7 @@ while True:
 
     # maos
     if hand_result.hand_landmarks:
+        face_lost_frames = 0
         for hand_landmarks in hand_result.hand_landmarks:
             drawing_utils.draw_landmarks(
                 annotated_image,
@@ -103,7 +104,6 @@ while True:
 
     if detection_result.face_landmarks:
         for face_landmarks in detection_result.face_landmarks:
-            direcao = get_gaze_direction(face_landmarks)
 
             mouth_ratio, mouth_x, mouth_y = get_mouth_data(face_landmarks)
             mouth_state = mouth_state_tracker.update(mouth_ratio)
@@ -121,11 +121,19 @@ while True:
             )
             
             #Atualizar estado do olho com EAR
+            # Primeiro calcula olho
             ear_right, ear_left, ear_average = get_eye_aspect_ratio(face_landmarks)
             eye_state = eye_state_tracker.update(ear_average)
-            perclos_data = perclos_tracker.update(eye_state["state_numeric"])
 
-            # confianca perclos
+            # Só calcula direção do olhar se o olho estiver aberto
+            if eye_state["state"] == "EYE_OPEN":
+                direcao = get_gaze_direction(face_landmarks)
+            elif eye_state["state"] == "EYE_CLOSED":
+                direcao = "Olho fechado"
+            else:
+                direcao = "Calibrando olho"
+
+            perclos_data = perclos_tracker.update(eye_state["state_numeric"])
             closed_confidence = eye_state["confidence"]
 
             # exibe a direção do olhar e se a mão está na boca na imagem anotada usando a função cv2.putText, que desenha texto na imagem. A direção do olhar é exibida em azul, enquanto a indicação de bocejo com mão é exibida em vermelho.
