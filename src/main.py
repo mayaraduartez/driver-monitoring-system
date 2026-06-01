@@ -1,4 +1,5 @@
 import cv2
+import time
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
@@ -17,6 +18,8 @@ from detectors.mouth_detector import (
     MouthStateTracker,
     MouthOpenTracker
 )
+from detectors.alert_manager import DriverAlertManager
+import subprocess
 
 # Inicializacao 
 capture = cv2.VideoCapture(0) # 0 ou o caminho do video 
@@ -74,8 +77,19 @@ mouth_state_tracker = MouthStateTracker(
 
 mouth_open_tracker = MouthOpenTracker(window_seconds=20)
 
+alert_manager = DriverAlertManager()
+
+
+def emitir_alerta_sonoro(level):
+    if level == "CRITICO":
+        subprocess.Popen(["afplay", "/System/Library/Sounds/Sosumi.aiff"])
+    else:
+        subprocess.Popen(["afplay", "/System/Library/Sounds/Ping.aiff"])
+
 face_lost_frames = 0
 FACE_LOST_RESET_FRAMES = 30
+last_sound_time = 0
+SOUND_COOLDOWN_SECONDS = 3
 
 # loop principal: lê os frames da câmera, processa as detecções faciais e de mãos, e exibe os resultados na tela
 while True:
@@ -151,6 +165,22 @@ while True:
             perclos_data = perclos_tracker.update(eye_state["state_numeric"])
             closed_confidence = eye_state["confidence"]
 
+            alert_data = alert_manager.update(
+                eye_closed_confidence=closed_confidence,
+                perclos=perclos_data["perclos"],
+                mouth_yawn_confidence=mouth_confidence,
+                gaze_confidence=gaze_focus_data["confidence"],
+                is_phone_like_gaze=gaze_focus_data["is_phone_like_gaze"],
+                hand_on_mouth=mao_na_boca
+            )
+
+            now = time.time()
+
+            if alert_data["level"] in ["ALERTA_SONOLENCIA", "ALERTA_DISTRACAO", "CRITICO"]:
+                if now - last_sound_time > SOUND_COOLDOWN_SECONDS:
+                    emitir_alerta_sonoro(alert_data["level"])
+                    last_sound_time = now
+
             # exibe a direção do olhar e se a mão está na boca na imagem anotada usando a função cv2.putText, que desenha texto na imagem. A direção do olhar é exibida em azul, enquanto a indicação de bocejo com mão é exibida em vermelho.
             cv2.putText(annotated_image, direcao,
                         (50, 100),
@@ -217,6 +247,25 @@ while True:
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
                 (0, 165, 255),
+                2
+            )
+
+            alert_color = (0, 255, 0)
+
+            if alert_data["level"] == "ATENCAO":
+                alert_color = (0, 255, 255)
+            elif alert_data["level"] in ["ALERTA_SONOLENCIA", "ALERTA_DISTRACAO"]:
+                alert_color = (0, 165, 255)
+            elif alert_data["level"] == "CRITICO":
+                alert_color = (0, 0, 255)
+
+            cv2.putText(
+                annotated_image,
+                f"{alert_data['level']} | Sono: {alert_data['sleepiness_score']:.2f} | Distracao: {alert_data['distraction_score']:.2f}",
+                (50, 370),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                alert_color,
                 2
             )
 
