@@ -109,8 +109,13 @@ class MouthStateTracker:
         self.close_threshold = self.open_threshold - self.close_margin
 
 
+        mouth_open_detected = (
+            mar_smoothed > self.open_threshold
+            and mar_smoothed > self.closed_mar + 0.12
+        )
+
         if self.current_state != "MOUTH_OPEN":
-            if mar_smoothed > self.open_threshold:
+            if mouth_open_detected:
                 self.current_state = "MOUTH_OPEN"
             else:
                 self.current_state = "MOUTH_CLOSED"
@@ -147,17 +152,10 @@ class MouthStateTracker:
         
     def reset(self):
         self.mar_history = []
-
-        if hasattr(self, "baseline_history"):
-            self.baseline_history.clear()
-
-        self.closed_mar = None
         self.open_threshold = self.min_open_threshold
         self.close_threshold = self.min_open_threshold - self.close_margin
-
         self.current_state = "MOUTH_CLOSED"
         self.consecutive_open_frames = 0
-
         self.open_confidence.reset()
 class MouthOpenTracker:
     def __init__(self, window_seconds=20):

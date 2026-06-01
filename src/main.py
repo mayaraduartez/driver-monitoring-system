@@ -3,11 +3,8 @@ import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 from mediapipe.tasks.python.vision import drawing_utils
-import math
 from utils.drawing import draw_landmarks_on_image
-from utils.math_utils import euclidean_distance
 from detectors.eye_detector import (
-    get_gaze_direction,
     get_eye_aspect_ratio,
     EyeStateTracker,
     PerclosTracker,
@@ -142,13 +139,6 @@ while True:
             # Primeiro calcula olho
             ear_right, ear_left, ear_average = get_eye_aspect_ratio(face_landmarks)
             eye_state = eye_state_tracker.update(ear_average)
-
-            if eye_state["state"] == "EYE_OPEN":
-                direcao = get_gaze_direction(face_landmarks)
-            elif eye_state["state"] == "EYE_CLOSED":
-                direcao = "Olho fechado"
-            else:
-                direcao = "Calibrando olho"
 
             # Só calcula direção do olhar se o olho estiver aberto
             direcao = get_safe_gaze_direction(face_landmarks, eye_state)
