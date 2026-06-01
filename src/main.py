@@ -6,7 +6,7 @@ from mediapipe.tasks.python.vision import drawing_utils
 import math
 from utils.drawing import draw_landmarks_on_image
 from utils.math_utils import euclidean_distance
-from detectors.eye_detector import get_gaze_direction, get_eye_aspect_ratio, EyeStateTracker, PerclosTracker
+from detectors.eye_detector import get_safe_gaze_direction, get_eye_aspect_ratio, EyeStateTracker, PerclosTracker
 from detectors.hand_detector import is_hand_on_mouth
 from detectors.mouth_detector import (
     get_mouth_data,
@@ -89,7 +89,6 @@ while True:
 
     # maos
     if hand_result.hand_landmarks:
-        face_lost_frames = 0
         for hand_landmarks in hand_result.hand_landmarks:
             drawing_utils.draw_landmarks(
                 annotated_image,
@@ -103,6 +102,7 @@ while True:
     limiar = 0.5
 
     if detection_result.face_landmarks:
+        face_lost_frames = 0
         for face_landmarks in detection_result.face_landmarks:
 
             mouth_ratio, mouth_x, mouth_y = get_mouth_data(face_landmarks)
@@ -117,7 +117,9 @@ while True:
             mao_na_boca = is_hand_on_mouth(
                 hand_result.hand_landmarks,
                 mouth_x,
-                mouth_y
+                mouth_y,
+                threshold=0.08,
+                min_points_near=2
             )
             
             #Atualizar estado do olho com EAR
@@ -126,12 +128,7 @@ while True:
             eye_state = eye_state_tracker.update(ear_average)
 
             # Só calcula direção do olhar se o olho estiver aberto
-            if eye_state["state"] == "EYE_OPEN":
-                direcao = get_gaze_direction(face_landmarks)
-            elif eye_state["state"] == "EYE_CLOSED":
-                direcao = "Olho fechado"
-            else:
-                direcao = "Calibrando olho"
+            direcao = get_safe_gaze_direction(face_landmarks, eye_state)
 
             perclos_data = perclos_tracker.update(eye_state["state_numeric"])
             closed_confidence = eye_state["confidence"]

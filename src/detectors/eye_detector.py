@@ -227,3 +227,12 @@ def get_eye_aspect_ratio(face_landmarks):
     ear_left = calc(left)
 
     return ear_right, ear_left, (ear_right + ear_left) / 2
+
+def get_safe_gaze_direction(face_landmarks, eye_state):
+    if eye_state["state"] == "EYE_CLOSED":
+        return "Olho fechado"
+
+    if eye_state["state"] == "CALIBRATING":
+        return "Calibrando olho"
+
+    return get_gaze_direction(face_landmarks)

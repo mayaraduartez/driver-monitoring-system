@@ -108,8 +108,6 @@ class MouthStateTracker:
 
         self.close_threshold = self.open_threshold - self.close_margin
 
-        # Histerese
-        previous_state = self.current_state
 
         if self.current_state != "MOUTH_OPEN":
             if mar_smoothed > self.open_threshold:
