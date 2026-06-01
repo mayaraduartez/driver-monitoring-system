@@ -181,30 +181,146 @@ class TemporalConfidence:
     def reset(self):
         self.confidence = 0.0
 
+class GazeFocusTracker:
+    def __init__(
+        self,
+        window_seconds=10,
+        off_road_min_frames=30,
+        min_off_road_percent=25,
+        increase_rate=0.03,
+        decrease_rate=0.005
+    ):
+        self.window_seconds = window_seconds
+        self.off_road_min_frames = off_road_min_frames
+        self.min_off_road_percent = min_off_road_percent
+
+        self.frames = deque()
+        self.consecutive_off_road_frames = 0
+
+        self.confidence_tracker = TemporalConfidence(
+            increase_rate=increase_rate,
+            decrease_rate=decrease_rate
+        )
+
+    def update(self, gaze_direction, eye_state):
+        now = time.time()
+
+        valid_gaze = eye_state == "EYE_OPEN"
+
+        is_off_road = (
+            valid_gaze and
+            gaze_direction in [
+                "Olhando ESQUERDA",
+                "Olhando DIREITA",
+                "Olhando BAIXO"
+            ]
+        )
+
+        is_phone_like_gaze = (
+            valid_gaze and
+            gaze_direction == "Olhando BAIXO"
+        )
+
+        self.frames.append({
+            "time": now,
+            "valid": 1 if valid_gaze else 0,
+            "off_road": 1 if is_off_road else 0
+        })
+
+        while self.frames and now - self.frames[0]["time"] > self.window_seconds:
+            self.frames.popleft()
+
+        valid_frames = sum(frame["valid"] for frame in self.frames)
+        off_road_frames = sum(frame["off_road"] for frame in self.frames)
+
+        if valid_frames == 0:
+            off_road_percent = 0
+        else:
+            off_road_percent = (off_road_frames / valid_frames) * 100
+
+        if is_off_road:
+            self.consecutive_off_road_frames += 1
+        else:
+            self.consecutive_off_road_frames = 0
+
+        is_distraction_evidence = (
+            self.consecutive_off_road_frames >= self.off_road_min_frames
+            and off_road_percent >= self.min_off_road_percent
+        )
+
+        confidence = self.confidence_tracker.update(is_distraction_evidence)
+
+        return {
+            "valid_gaze": valid_gaze,
+            "is_off_road": is_off_road,
+            "is_phone_like_gaze": is_phone_like_gaze,
+            "off_road_percent": off_road_percent,
+            "off_road_frames": off_road_frames,
+            "valid_frames": valid_frames,
+            "consecutive_off_road_frames": self.consecutive_off_road_frames,
+            "is_distraction_evidence": is_distraction_evidence,
+            "confidence": confidence
+            
+        }
+
+    def reset(self):
+        self.frames.clear()
+        self.consecutive_off_road_frames = 0
+        self.confidence_tracker.reset()
+
 def get_gaze_direction(face_landmarks):
     right_inner = face_landmarks[33]
     right_outer = face_landmarks[133]
-
     left_inner  = face_landmarks[362]
     left_outer  = face_landmarks[263]
+
+    right_top = face_landmarks[159]
+    right_bottom = face_landmarks[145]
+
+    left_top = face_landmarks[386]
+    left_bottom = face_landmarks[374]
 
     right_iris = face_landmarks[468]
     left_iris  = face_landmarks[473]
 
-    def get_ratio(inner, iris, outer):
-        return euclidean_distance(inner, iris) / euclidean_distance(inner, outer)
+    def get_horizontal_ratio(inner, iris, outer):
+        horizontal = euclidean_distance(inner, outer)
 
-    right_ratio = get_ratio(right_inner, right_iris, right_outer)
-    left_ratio  = get_ratio(left_inner, left_iris, left_outer)
+        if horizontal == 0:
+            return 0.5
 
-    gaze_ratio = (right_ratio + left_ratio) / 2
+        return euclidean_distance(inner, iris) / horizontal
 
-    if gaze_ratio < 0.4:
+    def get_vertical_ratio(top, iris, bottom):
+        vertical = euclidean_distance(top, bottom)
+
+        if vertical == 0:
+            return 0.5
+
+        return euclidean_distance(top, iris) / vertical
+
+    right_h = get_horizontal_ratio(right_inner, right_iris, right_outer)
+    left_h = get_horizontal_ratio(left_inner, left_iris, left_outer)
+
+    right_v = get_vertical_ratio(right_top, right_iris, right_bottom)
+    left_v = get_vertical_ratio(left_top, left_iris, left_bottom)
+
+    gaze_h = (right_h + left_h) / 2
+    gaze_v = (right_v + left_v) / 2
+
+    if gaze_v > 0.65:
+        return "Olhando BAIXO"
+
+    if gaze_v < 0.35:
+        return "Olhando CIMA"
+
+    if gaze_h < 0.4:
         return "Olhando ESQUERDA"
-    elif gaze_ratio > 0.6:
+
+    if gaze_h > 0.6:
         return "Olhando DIREITA"
-    else:
-        return "Olhando FRENTE"
+
+    return "Olhando FRENTE"
 
 # calcula o EAR dos dois olhos 
 def get_eye_aspect_ratio(face_landmarks):

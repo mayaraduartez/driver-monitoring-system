@@ -6,7 +6,14 @@ from mediapipe.tasks.python.vision import drawing_utils
 import math
 from utils.drawing import draw_landmarks_on_image
 from utils.math_utils import euclidean_distance
-from detectors.eye_detector import get_safe_gaze_direction, get_eye_aspect_ratio, EyeStateTracker, PerclosTracker
+from detectors.eye_detector import (
+    get_gaze_direction,
+    get_eye_aspect_ratio,
+    EyeStateTracker,
+    PerclosTracker,
+    GazeFocusTracker,
+    get_safe_gaze_direction
+)
 from detectors.hand_detector import is_hand_on_mouth
 from detectors.mouth_detector import (
     get_mouth_data,
@@ -44,9 +51,18 @@ hand_detector = vision.HandLandmarker.create_from_options(options_hands)
 eye_state_tracker = EyeStateTracker(
     smoothing_window=5,
     calibration_frames=60,
-    closed_ratio=0.72,
-    open_margin=0.03
+    closed_ratio=0.65,
+    open_margin=0.04
 )
+
+gaze_focus_tracker = GazeFocusTracker(
+    window_seconds=10,
+    off_road_min_frames=45,
+    min_off_road_percent=35,
+    increase_rate=0.03,
+    decrease_rate=0.005
+)
+
 # inicializa a janela de tempo do perclos
 perclos_tracker = PerclosTracker(window_seconds=20)
 
@@ -127,8 +143,20 @@ while True:
             ear_right, ear_left, ear_average = get_eye_aspect_ratio(face_landmarks)
             eye_state = eye_state_tracker.update(ear_average)
 
+            if eye_state["state"] == "EYE_OPEN":
+                direcao = get_gaze_direction(face_landmarks)
+            elif eye_state["state"] == "EYE_CLOSED":
+                direcao = "Olho fechado"
+            else:
+                direcao = "Calibrando olho"
+
             # Só calcula direção do olhar se o olho estiver aberto
             direcao = get_safe_gaze_direction(face_landmarks, eye_state)
+
+            gaze_focus_data = gaze_focus_tracker.update(
+                direcao,
+                eye_state["state"]
+            )
 
             perclos_data = perclos_tracker.update(eye_state["state_numeric"])
             closed_confidence = eye_state["confidence"]
@@ -192,6 +220,16 @@ while True:
                 2
             )
 
+            cv2.putText(
+                annotated_image,
+                f"Fora da via: {gaze_focus_data['off_road_percent']:.1f}% | Conf: {gaze_focus_data['confidence']:.2f}",
+                (50, 330),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 165, 255),
+                2
+            )
+
             if mao_na_boca:
                 cv2.putText(annotated_image, "Mao na boca",
                             (50, 50),
@@ -208,6 +246,7 @@ while True:
             perclos_tracker.reset()
             mouth_state_tracker.reset()
             mouth_open_tracker.reset()
+            gaze_focus_tracker.reset()
         
 
    
