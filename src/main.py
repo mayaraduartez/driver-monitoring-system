@@ -81,10 +81,16 @@ alert_manager = DriverAlertManager()
 
 
 def emitir_alerta_sonoro(level):
-    if level == "CRITICO":
-        subprocess.Popen(["afplay", "/System/Library/Sounds/Sosumi.aiff"])
-    else:
-        subprocess.Popen(["afplay", "/System/Library/Sounds/Ping.aiff"])
+    sons = {
+        "ATENCAO": "sounds/alert.mp3",
+        "ALERTA_SONOLENCIA": "sounds/alerta.mp3",
+        "ALERTA_DISTRACAO": "sounds/alerta.mp3",
+        "CRITICO": "sounds/alerta_critico.mp3",
+    }
+
+    caminho_som = sons.get(level, "/System/Library/Sounds/Ping.aiff")
+
+    subprocess.Popen(["afplay", caminho_som])
 
 face_lost_frames = 0
 FACE_LOST_RESET_FRAMES = 30
