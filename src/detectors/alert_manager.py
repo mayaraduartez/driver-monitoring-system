@@ -18,22 +18,23 @@ class DriverAlertManager:
         eye_closed_confidence,
         perclos,
         mouth_yawn_confidence,
+        mouth_occlusion_confidence,
+        eye_occlusion_confidence,
         gaze_confidence,
         is_phone_like_gaze,
         hand_on_mouth
     ):
-        # Normaliza PERCLOS:
-        # 0%  -> 0.0
-        # 40% -> 1.0
         perclos_confidence = min(perclos / 40.0, 1.0)
 
         phone_like_confidence = 1.0 if is_phone_like_gaze else 0.0
         hand_confidence = 1.0 if hand_on_mouth else 0.0
 
         sleepiness_score = (
-            eye_closed_confidence * 0.40 +
-            perclos_confidence * 0.35 +
-            mouth_yawn_confidence * 0.25
+            eye_closed_confidence * 0.25 +
+            perclos_confidence * 0.25 +
+            mouth_yawn_confidence * 0.20 +
+            mouth_occlusion_confidence * 0.15 +
+            eye_occlusion_confidence * 0.15
         )
 
         distraction_score = (
@@ -41,6 +42,25 @@ class DriverAlertManager:
             phone_like_confidence * 0.25 +
             hand_confidence * 0.10
         )
+
+        covered_yawn_score = (
+            mouth_yawn_confidence * 0.60 +
+            mouth_occlusion_confidence * 0.40
+        )
+
+        if covered_yawn_score >= 0.70:
+            sleepiness_score = max(sleepiness_score, 0.80)
+
+        hand_occlusion_score = max(
+            mouth_occlusion_confidence,
+            eye_occlusion_confidence
+        )
+
+        if hand_occlusion_score >= 0.80:
+            sleepiness_score = max(sleepiness_score, 0.65)
+
+        if eye_occlusion_confidence >= 0.80:
+            sleepiness_score = max(sleepiness_score, 0.65)
 
         if (
             sleepiness_score >= self.critical_sleepiness_threshold
@@ -75,5 +95,9 @@ class DriverAlertManager:
             "distraction_score": distraction_score,
             "perclos_confidence": perclos_confidence,
             "phone_like_confidence": phone_like_confidence,
-            "hand_confidence": hand_confidence
+            "hand_confidence": hand_confidence,
+            "mouth_occlusion_confidence": mouth_occlusion_confidence,
+            "eye_occlusion_confidence": eye_occlusion_confidence,
+            "hand_occlusion_score": hand_occlusion_score,
+            "covered_yawn_score": covered_yawn_score
         }

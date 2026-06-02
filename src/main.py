@@ -12,7 +12,11 @@ from detectors.eye_detector import (
     GazeFocusTracker,
     get_safe_gaze_direction
 )
-from detectors.hand_detector import is_hand_on_mouth
+from detectors.hand_detector import (
+    is_hand_on_mouth,
+    is_hand_on_eyes,
+    HandBehaviorTracker
+)
 from detectors.mouth_detector import (
     get_mouth_data,
     MouthStateTracker,
@@ -76,6 +80,12 @@ mouth_state_tracker = MouthStateTracker(
 )
 
 mouth_open_tracker = MouthOpenTracker(window_seconds=20)
+
+hand_behavior_tracker = HandBehaviorTracker(
+    increase_rate=0.04,
+    decrease_rate=0.005,
+    missing_tolerance_frames=10
+)
 
 alert_manager = DriverAlertManager()
 
@@ -157,8 +167,50 @@ while True:
             
             #Atualizar estado do olho com EAR
             # Primeiro calcula olho
+            # 1. Calcula olho
             ear_right, ear_left, ear_average = get_eye_aspect_ratio(face_landmarks)
             eye_state = eye_state_tracker.update(ear_average)
+
+            # 2. Calcula centro dos olhos
+            left_eye_x = (
+                face_landmarks[362].x +
+                face_landmarks[263].x
+            ) / 2
+
+            left_eye_y = (
+                face_landmarks[386].y +
+                face_landmarks[374].y
+            ) / 2
+
+            right_eye_x = (
+                face_landmarks[33].x +
+                face_landmarks[133].x
+            ) / 2
+
+            right_eye_y = (
+                face_landmarks[159].y +
+                face_landmarks[145].y
+            ) / 2
+
+            # 3. Detecta mão nos olhos
+            mao_nos_olhos = is_hand_on_eyes(
+                hand_result.hand_landmarks,
+                left_eye_x,
+                left_eye_y,
+                right_eye_x,
+                right_eye_y,
+                threshold=0.08,
+                min_points_near=2
+            )
+
+            # 4. Atualiza comportamento das mãos
+            hand_behavior_data = hand_behavior_tracker.update(
+                hand_on_mouth=mao_na_boca,
+                hand_on_eyes=mao_nos_olhos
+            )
+
+            mouth_occlusion_confidence = hand_behavior_data["mouth_occlusion_confidence"]
+            eye_occlusion_confidence = hand_behavior_data["eye_occlusion_confidence"]
 
             # Só calcula direção do olhar se o olho estiver aberto
             direcao = get_safe_gaze_direction(face_landmarks, eye_state)
@@ -175,6 +227,8 @@ while True:
                 eye_closed_confidence=closed_confidence,
                 perclos=perclos_data["perclos"],
                 mouth_yawn_confidence=mouth_confidence,
+                mouth_occlusion_confidence=mouth_occlusion_confidence,
+                eye_occlusion_confidence=eye_occlusion_confidence,
                 gaze_confidence=gaze_focus_data["confidence"],
                 is_phone_like_gaze=gaze_focus_data["is_phone_like_gaze"],
                 hand_on_mouth=mao_na_boca
@@ -274,6 +328,16 @@ while True:
                 alert_color,
                 2
             )
+            if mao_nos_olhos:
+                cv2.putText(
+                    annotated_image,
+                    "Mao nos olhos",
+                    (50, 410),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8,
+                    (0, 0, 255),
+                    2
+                )
 
             if mao_na_boca:
                 cv2.putText(annotated_image, "Mao na boca",
@@ -292,6 +356,7 @@ while True:
             mouth_state_tracker.reset()
             mouth_open_tracker.reset()
             gaze_focus_tracker.reset()
+            hand_behavior_tracker.reset()
         
 
    
