@@ -15,6 +15,7 @@ from detectors.eye_detector import (
 from detectors.hand_detector import (
     is_hand_on_mouth,
     is_hand_on_eyes,
+    is_hand_on_face,
     HandBehaviorTracker
 )
 from detectors.mouth_detector import (
@@ -72,10 +73,10 @@ perclos_tracker = PerclosTracker(window_seconds=20)
 
 mouth_state_tracker = MouthStateTracker(
     smoothing_window=5,
-    baseline_window=300,
-    open_ratio=1.60,
+    calibration_frames=60,
     min_open_threshold=0.30,
-    close_margin=0.03,
+    open_margin=0.15,
+    close_margin=0.04,
     yawn_min_frames=30
 )
 
@@ -203,14 +204,23 @@ while True:
                 min_points_near=2
             )
 
+            mao_no_rosto = is_hand_on_face(
+                hand_result.hand_landmarks,
+                face_landmarks,
+                threshold=0.08,
+                min_points_near=2
+            )
+
             # 4. Atualiza comportamento das mãos
             hand_behavior_data = hand_behavior_tracker.update(
                 hand_on_mouth=mao_na_boca,
-                hand_on_eyes=mao_nos_olhos
+                hand_on_eyes=mao_nos_olhos,
+                hand_on_face=mao_no_rosto
             )
 
             mouth_occlusion_confidence = hand_behavior_data["mouth_occlusion_confidence"]
             eye_occlusion_confidence = hand_behavior_data["eye_occlusion_confidence"]
+            face_occlusion_confidence = hand_behavior_data["face_occlusion_confidence"]
 
             # Só calcula direção do olhar se o olho estiver aberto
             direcao = get_safe_gaze_direction(face_landmarks, eye_state)
@@ -231,7 +241,8 @@ while True:
                 eye_occlusion_confidence=eye_occlusion_confidence,
                 gaze_confidence=gaze_focus_data["confidence"],
                 is_phone_like_gaze=gaze_focus_data["is_phone_like_gaze"],
-                hand_on_mouth=mao_na_boca
+                hand_on_mouth=mao_na_boca,
+                face_occlusion_confidence=face_occlusion_confidence
             )
 
             now = time.time()
@@ -282,7 +293,7 @@ while True:
             )
             cv2.putText(
                 annotated_image,
-                f"Boca: {mouth_state['state']} | MAR: {mouth_state['mar_smoothed']:.3f} | TH: {mouth_state['threshold']:.3f}",
+                f"Boca: {mouth_state['state']} | MAR: {mouth_state['mar_smoothed']:.3f} | Base: {mouth_state['closed_mar']:.3f} | TH: {mouth_state['threshold']:.3f}",
                 (50, 260),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
@@ -333,6 +344,17 @@ while True:
                     annotated_image,
                     "Mao nos olhos",
                     (50, 410),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8,
+                    (0, 0, 255),
+                    2
+                )
+
+            if mao_no_rosto:
+                cv2.putText(
+                    annotated_image,
+                    "Mao no rosto",
+                    (50, 440),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.8,
                     (0, 0, 255),

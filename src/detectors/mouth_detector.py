@@ -45,27 +45,27 @@ class MouthStateTracker:
     def __init__(
         self,
         smoothing_window=5,
-        baseline_window=120,
-        open_ratio=1.60,
+        calibration_frames=60,
         min_open_threshold=0.30,
-        close_margin=0.03,
-        yawn_min_frames=15
+        open_margin=0.15,
+        close_margin=0.04,
+        yawn_min_frames=30
     ):
         self.smoothing_window = smoothing_window
-        self.baseline_window = baseline_window
-        self.open_ratio = open_ratio
+        self.calibration_frames = calibration_frames
         self.min_open_threshold = min_open_threshold
+        self.open_margin = open_margin
         self.close_margin = close_margin
         self.yawn_min_frames = yawn_min_frames
 
         self.mar_history = []
-        self.baseline_history = deque(maxlen=baseline_window)
+        self.closed_mar_samples = []
 
         self.closed_mar = None
-        self.open_threshold = min_open_threshold
-        self.close_threshold = min_open_threshold - close_margin
+        self.open_threshold = None
+        self.close_threshold = None
 
-        self.current_state = "MOUTH_CLOSED"
+        self.current_state = "CALIBRATING"
         self.consecutive_open_frames = 0
 
         self.open_confidence = TemporalConfidence(
@@ -73,14 +73,6 @@ class MouthStateTracker:
             decrease_rate=0.002,
             missing_tolerance_frames=30
         )
-
-    def _percentile(self, values, percent):
-        if not values:
-            return None
-
-        sorted_values = sorted(values)
-        index = int((percent / 100) * (len(sorted_values) - 1))
-        return sorted_values[index]
 
     def update(self, mar):
         self.mar_history.append(mar)
@@ -90,28 +82,37 @@ class MouthStateTracker:
 
         mar_smoothed = sum(self.mar_history) / len(self.mar_history)
 
-        # Se ainda não temos baseline, alimenta no começo
-        if len(self.baseline_history) < 10:
-            self.baseline_history.append(mar_smoothed)
+        if len(self.closed_mar_samples) < self.calibration_frames:
+            self.closed_mar_samples.append(mar_smoothed)
 
-        baseline_mar = self._percentile(list(self.baseline_history), 20)
+            self.closed_mar = (
+                sum(self.closed_mar_samples) /
+                len(self.closed_mar_samples)
+            )
 
-        if baseline_mar is None:
-            baseline_mar = mar_smoothed
+            self.open_threshold = max(
+                self.min_open_threshold,
+                self.closed_mar + self.open_margin
+            )
 
-        self.closed_mar = baseline_mar
+            self.close_threshold = self.open_threshold - self.close_margin
+            self.current_state = "CALIBRATING"
 
-        self.open_threshold = max(
-            self.min_open_threshold,
-            self.closed_mar * self.open_ratio
-        )
-
-        self.close_threshold = self.open_threshold - self.close_margin
-
+            return {
+                "mar_raw": mar,
+                "mar_smoothed": mar_smoothed,
+                "state": self.current_state,
+                "state_numeric": 0,
+                "threshold": self.open_threshold,
+                "close_threshold": self.close_threshold,
+                "closed_mar": self.closed_mar,
+                "confidence": 0.0,
+                "consecutive_open_frames": 0,
+                "is_yawn_evidence": False,
+            }
 
         mouth_open_detected = (
             mar_smoothed > self.open_threshold
-            and mar_smoothed > self.closed_mar + 0.12
         )
 
         if self.current_state != "MOUTH_OPEN":
@@ -123,17 +124,14 @@ class MouthStateTracker:
             if mar_smoothed < self.close_threshold:
                 self.current_state = "MOUTH_CLOSED"
 
-        # Só aprende baseline quando estiver fechado
-        # e o MAR estiver abaixo do threshold de fechamento.
-        if self.current_state == "MOUTH_CLOSED" and mar_smoothed < self.close_threshold:
-            self.baseline_history.append(mar_smoothed)
-
         if self.current_state == "MOUTH_OPEN":
             self.consecutive_open_frames += 1
         else:
             self.consecutive_open_frames = 0
 
-        is_yawn_evidence = self.consecutive_open_frames >= self.yawn_min_frames
+        is_yawn_evidence = (
+            self.consecutive_open_frames >= self.yawn_min_frames
+        )
 
         confidence = self.open_confidence.update(is_yawn_evidence)
 
@@ -149,14 +147,17 @@ class MouthStateTracker:
             "consecutive_open_frames": self.consecutive_open_frames,
             "is_yawn_evidence": is_yawn_evidence,
         }
-        
+
     def reset(self):
         self.mar_history = []
-        self.open_threshold = self.min_open_threshold
-        self.close_threshold = self.min_open_threshold - self.close_margin
-        self.current_state = "MOUTH_CLOSED"
+        self.closed_mar_samples = []
+        self.closed_mar = None
+        self.open_threshold = None
+        self.close_threshold = None
+        self.current_state = "CALIBRATING"
         self.consecutive_open_frames = 0
         self.open_confidence.reset()
+        
 class MouthOpenTracker:
     def __init__(self, window_seconds=20):
         self.window_seconds = window_seconds

@@ -20,6 +20,7 @@ class DriverAlertManager:
         mouth_yawn_confidence,
         mouth_occlusion_confidence,
         eye_occlusion_confidence,
+        face_occlusion_confidence,
         gaze_confidence,
         is_phone_like_gaze,
         hand_on_mouth
@@ -34,13 +35,15 @@ class DriverAlertManager:
             perclos_confidence * 0.25 +
             mouth_yawn_confidence * 0.20 +
             mouth_occlusion_confidence * 0.15 +
-            eye_occlusion_confidence * 0.15
+            eye_occlusion_confidence * 0.15 +
+            face_occlusion_confidence * 0.08
         )
 
         distraction_score = (
             gaze_confidence * 0.65 +
             phone_like_confidence * 0.25 +
-            hand_confidence * 0.10
+            hand_confidence * 0.10 +
+            face_occlusion_confidence * 0.05
         )
 
         covered_yawn_score = (
@@ -53,7 +56,8 @@ class DriverAlertManager:
 
         hand_occlusion_score = max(
             mouth_occlusion_confidence,
-            eye_occlusion_confidence
+            eye_occlusion_confidence,
+            face_occlusion_confidence
         )
 
         if hand_occlusion_score >= 0.80:
@@ -61,6 +65,9 @@ class DriverAlertManager:
 
         if eye_occlusion_confidence >= 0.80:
             sleepiness_score = max(sleepiness_score, 0.65)
+        
+        if face_occlusion_confidence >= 0.85:
+            sleepiness_score = max(sleepiness_score, 0.60)
 
         if (
             sleepiness_score >= self.critical_sleepiness_threshold
@@ -99,5 +106,6 @@ class DriverAlertManager:
             "mouth_occlusion_confidence": mouth_occlusion_confidence,
             "eye_occlusion_confidence": eye_occlusion_confidence,
             "hand_occlusion_score": hand_occlusion_score,
-            "covered_yawn_score": covered_yawn_score
+            "covered_yawn_score": covered_yawn_score,
+            "face_occlusion_confidence": face_occlusion_confidence
         }
