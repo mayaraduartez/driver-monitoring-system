@@ -25,6 +25,7 @@ from detectors.mouth_detector import (
 )
 from detectors.alert_manager import DriverAlertManager
 import subprocess
+from utils.preprocessing import preprocess_frame
 
 # Inicializacao 
 capture = cv2.VideoCapture(0) # 0 ou o caminho do video 
@@ -116,6 +117,7 @@ while True:
         break
     
     frame = cv2.flip(frame, 1)  # Espelhar o feed da câmera
+    frame, frame_metrics, filters_used = preprocess_frame(frame)
 
     # converte o frame de BGR (formato padrão do OpenCV) para RGB (formato esperado pelo MediaPipe)
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -360,6 +362,16 @@ while True:
                     (0, 0, 255),
                     2
                 )
+
+            cv2.putText(
+                annotated_image,
+                f"Preproc: {', '.join(filters_used) if filters_used else 'nenhum'}",
+                (50, 500),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 0, 255),
+                2
+            )
 
             if mao_na_boca:
                 cv2.putText(annotated_image, "Mao na boca",
