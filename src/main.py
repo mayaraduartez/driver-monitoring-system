@@ -365,6 +365,7 @@ while True:
 
             cv2.putText(
                 annotated_image,
+                
                 f"Preproc: {', '.join(filters_used) if filters_used else 'nenhum'}",
                 (50, 500),
                 cv2.FONT_HERSHEY_SIMPLEX,

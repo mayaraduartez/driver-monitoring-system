@@ -11,7 +11,7 @@ class EyeStateTracker:
         self,
         smoothing_window=5, # quantos frames usados pra suavizar o EAR
         calibration_frames=60,# quantos frames usados pra calibrar o olho aberto
-        closed_ratio=0.72, #percentual do EAR aberto que será considerado limite para olho fechado
+        closed_ratio=0.65, #percentual do EAR aberto que será considerado limite para olho fechado
         open_margin=0.03 #margem para evitar oscilação entre aberto e fechado (histerese)
     ):
         self.smoothing_window = smoothing_window
