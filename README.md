@@ -114,7 +114,7 @@ landmark-ai/
 Clone o repositório:
 
 ```bash
-git clone https://github.com/SEU-USUARIO/driver-monitoring-system.git
+git clone https://github.com/mayaraduartez/driver-monitoring-system.git
 cd driver-monitoring-system
 ```
 
@@ -148,25 +148,6 @@ models/
 ├── face_landmarker.task
 └── hand_landmarker.task
 ```
-
----
-
-## Limitações
-
-- Utiliza câmera RGB convencional.
-- Não possui validação clínica.
-- Não substitui sistemas automotivos certificados.
-- Destinado a pesquisa acadêmica e prototipagem.
-
----
-
-## Trabalhos Futuros
-
-- Execução embarcada em Raspberry Pi
-- Uso de câmera infravermelha (NIR)
-- Classificadores baseados em Machine Learning
-- Validação quantitativa em base de dados pública
-- Integração com sistemas veiculares
 
 ---
 
